@@ -197,6 +197,7 @@ def get_model_input_size(model):
             return (224, 224)
 
         return (int(width), int(height))
+
     except Exception:
         return (224, 224)
 
@@ -209,6 +210,7 @@ def get_output_units(model):
             shape = shape[0]
 
         return int(shape[-1])
+
     except Exception:
         return len(CLASS_NAMES)
 
@@ -264,15 +266,22 @@ def get_color_features(crop_img):
 
     total = h.shape[0] * h.shape[1]
 
+    # Cơm trắng / vùng sáng
     white_mask = (s < 45) & (v > 160)
+
+    # Rau xanh
     green_mask = (h >= 35) & (h <= 95) & (s > 45) & (v > 50)
+
+    # Vàng: trứng
     yellow_mask = (h >= 18) & (h <= 38) & (s > 60) & (v > 80)
 
+    # Nâu/cam: thịt kho, cá kho, nước kho
     brown_orange_mask = (
         ((h >= 5) & (h <= 25) & (s > 55) & (v > 45)) |
         ((h >= 0) & (h <= 10) & (s > 60) & (v > 40))
     )
 
+    # Đỏ/cam: canh chua, cà chua
     red_orange_mask = (
         ((h >= 0) & (h <= 15) & (s > 60) & (v > 80)) |
         ((h >= 170) & (h <= 179) & (s > 60) & (v > 80))
@@ -290,7 +299,8 @@ def get_color_features(crop_img):
 def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
     """
     Chỉ sửa theo màu khi model dưới 40%.
-    Nếu model >= 40% thì giữ nguyên kết quả model.
+    Nếu model >= 40% thì giữ nguyên.
+    Nếu model gốc đã đoán Thịt kho thì không tự đổi sang Thịt kho trứng.
     """
     features = get_color_features(crop_img)
     top3_keys = [item["class_key"] for item in top3]
@@ -300,6 +310,7 @@ def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
 
     CONFIDENCE_THRESHOLD = 0.40
 
+    # Nếu model tự tin từ 40% trở lên thì giữ nguyên
     if confidence >= CONFIDENCE_THRESHOLD:
         return corrected_key, note, features
 
@@ -309,10 +320,17 @@ def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
     brown_ratio = features["brown_orange_ratio"]
     red_orange_ratio = features["red_orange_ratio"]
 
+    # Giữ Thịt kho nếu model gốc đã đoán Thịt kho
+    # Tránh tự sửa nhầm sang Thịt kho trứng
+    if raw_class_key == "thit_kho":
+        return corrected_key, note, features
+
+    # Cơm trắng
     if white_ratio > 0.50 and "com_trang" in top3_keys:
         corrected_key = "com_trang"
         note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều trắng nên chọn Cơm trắng"
 
+    # Canh rau
     elif (
         green_ratio > 0.22
         and "canh_rau" in top3_keys
@@ -321,6 +339,7 @@ def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
         corrected_key = "canh_rau"
         note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều xanh nên chọn Canh rau"
 
+    # Rau xào
     elif (
         green_ratio > 0.26
         and "rau_xao" in top3_keys
@@ -329,18 +348,23 @@ def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
         corrected_key = "rau_xao"
         note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều xanh nên chọn Rau xào"
 
+    # Thịt kho trứng
+    # Cần có đủ nâu/cam + vàng + trắng thì mới sửa sang Thịt kho trứng
     elif (
         brown_ratio > 0.12
-        and yellow_ratio > 0.10
+        and yellow_ratio > 0.14
+        and white_ratio > 0.18
         and "thit_kho_trung" in top3_keys
     ):
         corrected_key = "thit_kho_trung"
-        note = "Model dưới 40%, tự sửa theo màu: ảnh có nâu/cam và vàng nên chọn Thịt kho trứng"
+        note = "Model dưới 40%, tự sửa theo màu: ảnh có nâu/cam, vàng và trắng nên chọn Thịt kho trứng"
 
+    # Thịt kho
     elif brown_ratio > 0.16 and "thit_kho" in top3_keys:
         corrected_key = "thit_kho"
         note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều nâu/cam nên chọn Thịt kho"
 
+    # Trứng chiên
     elif (
         yellow_ratio > 0.22
         and brown_ratio < 0.10
@@ -349,6 +373,7 @@ def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
         corrected_key = "trung_chien"
         note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều vàng nên chọn Trứng chiên"
 
+    # Canh chua
     elif (
         red_orange_ratio > 0.13
         and green_ratio < 0.15
@@ -382,6 +407,7 @@ def predict_one_image(model, image, input_size, use_color_correction=True):
     for idx in top_indices:
         idx = int(idx)
         key = CLASS_NAMES[idx]
+
         top3.append({
             "class_key": key,
             "food_name": DISPLAY_NAMES[key],
