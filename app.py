@@ -5,6 +5,8 @@ from PIL import Image, ImageDraw
 import os
 import cv2
 
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+
 # =========================
 # CẤU HÌNH APP
 # =========================
@@ -16,6 +18,7 @@ st.set_page_config(
 
 MODEL_PATH = "food_model_final.h5"
 
+# ĐÚNG THEO train_generator.class_indices CỦA ANH
 CLASS_NAMES = [
     "ca_hu_kho",        # 0
     "canh_chua",        # 1
@@ -55,8 +58,8 @@ PRICE_TABLE = {
     "trung_chien": 25000
 }
 
-# Sau khi đã tự tìm và cắt riêng cái khay,
-# 5 ô này sẽ được cắt theo tỉ lệ trên ảnh khay đã chuẩn hóa
+# Sau khi app tự tìm và cắt riêng cái khay,
+# 5 ô sẽ được cắt theo tỉ lệ trên ảnh khay đã chuẩn hóa
 ROI_RATIOS = {
     "Ô trên trái":  (0.02, 0.05, 0.30, 0.49),
     "Ô trên giữa": (0.30, 0.05, 0.58, 0.49),
@@ -147,6 +150,11 @@ st.markdown(
         font-weight: 700;
         padding: 10px 22px;
     }
+
+    div.stButton > button:hover {
+        background-color: #e67e00;
+        color: white !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -178,16 +186,18 @@ def load_food_model():
 def get_model_input_size(model):
     try:
         shape = model.input_shape
+
         if isinstance(shape, list):
             shape = shape[0]
 
-        h = shape[1]
-        w = shape[2]
+        height = shape[1]
+        width = shape[2]
 
-        if h is None or w is None:
+        if height is None or width is None:
             return (224, 224)
 
-        return (int(w), int(h))
+        return (int(width), int(height))
+
     except Exception:
         return (224, 224)
 
@@ -196,12 +206,12 @@ def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
 
     s = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(s)]      # top-left
-    rect[2] = pts[np.argmax(s)]      # bottom-right
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
 
     diff = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(diff)]   # top-right
-    rect[3] = pts[np.argmax(diff)]   # bottom-left
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
 
     return rect
 
@@ -237,9 +247,9 @@ def four_point_transform(image, pts):
 
 def smart_find_tray(image_pil):
     """
-    Tự tìm khay trong ảnh.
-    Nếu tìm được khay: cắt riêng khay ra.
-    Nếu không tìm được: dùng ảnh gốc làm fallback.
+    Tự tìm cái khay trong ảnh.
+    Nếu tìm được: cắt và chuẩn hóa khay.
+    Nếu không tìm được: dùng ảnh gốc.
     """
 
     image_rgb = np.array(image_pil.convert("RGB"))
@@ -248,7 +258,6 @@ def smart_find_tray(image_pil):
     original = image_bgr.copy()
     h, w = image_bgr.shape[:2]
 
-    # Resize nhỏ lại để xử lý nhanh
     max_side = 1200
     scale = 1.0
 
@@ -264,7 +273,6 @@ def smart_find_tray(image_pil):
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (7, 7), 0)
 
-    # Bắt cạnh khay
     edges = cv2.Canny(gray, 40, 120)
 
     kernel = np.ones((7, 7), np.uint8)
@@ -278,35 +286,32 @@ def smart_find_tray(image_pil):
     )
 
     if len(contours) == 0:
-        return image_pil, "Không tìm được contour khay, dùng ảnh gốc."
+        return image_pil, "Không tìm được khay, dùng ảnh gốc."
 
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
     best_box = None
     image_area = small_w * small_h
 
-    for cnt in contours[:10]:
+    for cnt in contours[:15]:
         area = cv2.contourArea(cnt)
 
-        # Bỏ contour quá nhỏ
-        if area < image_area * 0.15:
+        if area < image_area * 0.12:
             continue
 
         rect = cv2.minAreaRect(cnt)
         box = cv2.boxPoints(rect)
         box = np.array(box, dtype="float32")
 
-        bw = rect[1][0]
-        bh = rect[1][1]
+        rw, rh = rect[1]
 
-        if bw < small_w * 0.3 or bh < small_h * 0.3:
+        if rw < small_w * 0.25 or rh < small_h * 0.25:
             continue
 
         best_box = box
         break
 
     if best_box is None:
-        # Fallback: lấy bounding box contour lớn nhất
         cnt = contours[0]
         x, y, ww, hh = cv2.boundingRect(cnt)
 
@@ -315,7 +320,7 @@ def smart_find_tray(image_pil):
         ww = int(ww / scale)
         hh = int(hh / scale)
 
-        cropped = original[y:y+hh, x:x+ww]
+        cropped = original[y:y + hh, x:x + ww]
 
         if cropped.size == 0:
             return image_pil, "Không cắt được khay, dùng ảnh gốc."
@@ -324,9 +329,8 @@ def smart_find_tray(image_pil):
             cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
 
         cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
-        return Image.fromarray(cropped_rgb), "Fallback: cắt theo bounding box."
+        return Image.fromarray(cropped_rgb), "Fallback: cắt theo vùng lớn nhất."
 
-    # Scale box về ảnh gốc
     best_box = best_box / scale
 
     warped = four_point_transform(original, best_box)
@@ -335,12 +339,11 @@ def smart_find_tray(image_pil):
         warped = cv2.rotate(warped, cv2.ROTATE_90_CLOCKWISE)
 
     warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-    tray_pil = Image.fromarray(warped_rgb)
 
-    return tray_pil, "Đã tự tìm và chuẩn hóa khay."
+    return Image.fromarray(warped_rgb), "Đã tự tìm và chuẩn hóa khay."
 
 
-def crop_by_ratio(image, ratio_box, margin=0.02):
+def crop_by_ratio(image, ratio_box, margin=0.01):
     w, h = image.size
     x1, y1, x2, y2 = ratio_box
 
@@ -374,6 +377,7 @@ def draw_boxes(image):
         y2 = int(y2 * h)
 
         color = BOX_COLORS.get(name, "red")
+
         draw.rectangle((x1, y1, x2, y2), outline=color, width=6)
         draw.text((x1 + 12, y1 + 12), name, fill=color)
 
@@ -384,8 +388,15 @@ def predict_food(model, crop_img, input_size):
     img = crop_img.convert("RGB")
     img = img.resize(input_size)
 
-    arr = np.array(img).astype("float32") / 255.0
+    arr = np.array(img).astype("float32")
     arr = np.expand_dims(arr, axis=0)
+
+    # QUAN TRỌNG:
+    # Giống code test Colab của anh:
+    # from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+    # img_array = preprocess_input(img_array)
+    # Không chia /255.0 nữa.
+    arr = preprocess_input(arr)
 
     preds = model.predict(arr, verbose=0)[0]
 
@@ -423,8 +434,9 @@ st.markdown(
 st.markdown(
     """
     <div class="note-box">
-    <b>Cách cắt mới:</b> App sẽ tự tìm cái khay trong ảnh trước, sau đó mới cắt 5 ô đồ ăn.
-    Vì vậy ảnh có bị xa, lệch nhẹ hoặc dư nền bàn thì vẫn ổn hơn kiểu cắt cố định trên ảnh gốc.
+    <b>Cách hoạt động:</b> App tự tìm khay trong ảnh, cắt khay ra trước, sau đó chia thành 5 ô để nhận diện.
+    <br><br>
+    <b>Tiền xử lý model:</b> Đã dùng preprocess_input của MobileNetV2 giống code test trên Colab.
     <br><br>
     <b>Canh chua:</b> tính chung 10.000 đ. Hiện tại chưa đếm số trứng.
     </div>
@@ -437,7 +449,8 @@ input_size = get_model_input_size(model)
 
 if len(CLASS_NAMES) != model.output_shape[-1]:
     st.error(
-        f"Số class trong app là {len(CLASS_NAMES)}, nhưng model output là {model.output_shape[-1]}."
+        f"Số class trong app là {len(CLASS_NAMES)}, nhưng model output là {model.output_shape[-1]}. "
+        "Anh cần kiểm tra lại CLASS_NAMES."
     )
     st.stop()
 
@@ -555,6 +568,11 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+low_conf_df = df[df["Độ tin cậy"] < 0.5]
+
+if len(low_conf_df) > 0:
+    st.warning("Có món có độ tin cậy dưới 50%. Anh nên kiểm tra lại ảnh cắt hoặc chỉnh món ở phần dưới.")
 
 # =========================
 # CHỈNH THỦ CÔNG NẾU MODEL NHẬN SAI
