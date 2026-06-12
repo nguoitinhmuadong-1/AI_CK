@@ -8,7 +8,7 @@ import cv2
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
 # =========================
-# CẤU HÌNH APP
+# CONFIG
 # =========================
 st.set_page_config(
     page_title="AD Food Tray",
@@ -18,7 +18,6 @@ st.set_page_config(
 
 MODEL_PATH = "food_model_final.h5"
 
-# ĐÚNG THEO train_generator.class_indices CỦA ANH
 CLASS_NAMES = [
     "ca_hu_kho",        # 0
     "canh_chua",        # 1
@@ -58,14 +57,13 @@ PRICE_TABLE = {
     "trung_chien": 25000
 }
 
-# Sau khi app tự tìm và cắt riêng cái khay,
-# 5 ô sẽ được cắt theo tỉ lệ trên ảnh khay đã chuẩn hóa
+# Cắt trực tiếp từ ảnh khay
 ROI_RATIOS = {
-    "Ô trên trái":  (0.02, 0.05, 0.30, 0.49),
-    "Ô trên giữa": (0.30, 0.05, 0.58, 0.49),
-    "Ô trên phải": (0.58, 0.04, 0.98, 0.50),
-    "Ô dưới trái": (0.02, 0.50, 0.43, 0.98),
-    "Ô dưới phải": (0.43, 0.50, 0.98, 0.98),
+    "Ô trên trái":  (0.04, 0.08, 0.30, 0.47),
+    "Ô trên giữa": (0.31, 0.07, 0.57, 0.47),
+    "Ô trên phải": (0.62, 0.04, 0.98, 0.48),
+    "Ô dưới trái": (0.04, 0.50, 0.42, 0.98),
+    "Ô dưới phải": (0.45, 0.50, 0.98, 0.97),
 }
 
 BOX_COLORS = {
@@ -88,7 +86,7 @@ st.markdown(
 
     .title {
         text-align: center;
-        font-size: 46px;
+        font-size: 44px;
         font-weight: 900;
         color: #4e2600;
         margin-bottom: 5px;
@@ -96,7 +94,7 @@ st.markdown(
 
     .subtitle {
         text-align: center;
-        font-size: 20px;
+        font-size: 19px;
         color: #5c3300;
         margin-bottom: 25px;
     }
@@ -127,7 +125,7 @@ st.markdown(
     }
 
     .total-money {
-        font-size: 48px;
+        font-size: 46px;
         font-weight: 900;
         color: #d35400;
     }
@@ -139,7 +137,6 @@ st.markdown(
     .stImage figcaption {
         color: #4e2600 !important;
         font-weight: 700 !important;
-        font-size: 16px !important;
     }
 
     div.stButton > button {
@@ -161,7 +158,7 @@ st.markdown(
 )
 
 # =========================
-# HÀM TIỆN ÍCH
+# FUNCTIONS
 # =========================
 def format_money(value):
     return f"{value:,.0f}".replace(",", ".") + " đ"
@@ -197,150 +194,8 @@ def get_model_input_size(model):
             return (224, 224)
 
         return (int(width), int(height))
-
     except Exception:
         return (224, 224)
-
-
-def order_points(pts):
-    rect = np.zeros((4, 2), dtype="float32")
-
-    s = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(s)]
-    rect[2] = pts[np.argmax(s)]
-
-    diff = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(diff)]
-    rect[3] = pts[np.argmax(diff)]
-
-    return rect
-
-
-def four_point_transform(image, pts):
-    rect = order_points(pts)
-
-    tl, tr, br, bl = rect
-
-    width_a = np.linalg.norm(br - bl)
-    width_b = np.linalg.norm(tr - tl)
-    max_width = int(max(width_a, width_b))
-
-    height_a = np.linalg.norm(tr - br)
-    height_b = np.linalg.norm(tl - bl)
-    max_height = int(max(height_a, height_b))
-
-    if max_width < 10 or max_height < 10:
-        return image
-
-    dst = np.array([
-        [0, 0],
-        [max_width - 1, 0],
-        [max_width - 1, max_height - 1],
-        [0, max_height - 1]
-    ], dtype="float32")
-
-    matrix = cv2.getPerspectiveTransform(rect, dst)
-    warped = cv2.warpPerspective(image, matrix, (max_width, max_height))
-
-    return warped
-
-
-def smart_find_tray(image_pil):
-    """
-    Tự tìm cái khay trong ảnh.
-    Nếu tìm được: cắt và chuẩn hóa khay.
-    Nếu không tìm được: dùng ảnh gốc.
-    """
-
-    image_rgb = np.array(image_pil.convert("RGB"))
-    image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
-
-    original = image_bgr.copy()
-    h, w = image_bgr.shape[:2]
-
-    max_side = 1200
-    scale = 1.0
-
-    if max(h, w) > max_side:
-        scale = max_side / max(h, w)
-        image_bgr = cv2.resize(
-            image_bgr,
-            (int(w * scale), int(h * scale))
-        )
-
-    small_h, small_w = image_bgr.shape[:2]
-
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (7, 7), 0)
-
-    edges = cv2.Canny(gray, 40, 120)
-
-    kernel = np.ones((7, 7), np.uint8)
-    edges = cv2.dilate(edges, kernel, iterations=2)
-    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
-
-    contours, _ = cv2.findContours(
-        edges,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
-    )
-
-    if len(contours) == 0:
-        return image_pil, "Không tìm được khay, dùng ảnh gốc."
-
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
-
-    best_box = None
-    image_area = small_w * small_h
-
-    for cnt in contours[:15]:
-        area = cv2.contourArea(cnt)
-
-        if area < image_area * 0.12:
-            continue
-
-        rect = cv2.minAreaRect(cnt)
-        box = cv2.boxPoints(rect)
-        box = np.array(box, dtype="float32")
-
-        rw, rh = rect[1]
-
-        if rw < small_w * 0.25 or rh < small_h * 0.25:
-            continue
-
-        best_box = box
-        break
-
-    if best_box is None:
-        cnt = contours[0]
-        x, y, ww, hh = cv2.boundingRect(cnt)
-
-        x = int(x / scale)
-        y = int(y / scale)
-        ww = int(ww / scale)
-        hh = int(hh / scale)
-
-        cropped = original[y:y + hh, x:x + ww]
-
-        if cropped.size == 0:
-            return image_pil, "Không cắt được khay, dùng ảnh gốc."
-
-        if cropped.shape[0] > cropped.shape[1]:
-            cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
-
-        cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
-        return Image.fromarray(cropped_rgb), "Fallback: cắt theo vùng lớn nhất."
-
-    best_box = best_box / scale
-
-    warped = four_point_transform(original, best_box)
-
-    if warped.shape[0] > warped.shape[1]:
-        warped = cv2.rotate(warped, cv2.ROTATE_90_CLOCKWISE)
-
-    warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-
-    return Image.fromarray(warped_rgb), "Đã tự tìm và chuẩn hóa khay."
 
 
 def crop_by_ratio(image, ratio_box, margin=0.01):
@@ -377,67 +232,196 @@ def draw_boxes(image):
         y2 = int(y2 * h)
 
         color = BOX_COLORS.get(name, "red")
-
         draw.rectangle((x1, y1, x2, y2), outline=color, width=6)
         draw.text((x1 + 12, y1 + 12), name, fill=color)
 
     return preview
 
 
-def predict_food(model, crop_img, input_size):
-    img = crop_img.convert("RGB")
+def get_color_features(crop_img):
+    """
+    Phân tích màu chính trong ảnh crop.
+    """
+    img = crop_img.convert("RGB").resize((224, 224))
+    rgb = np.array(img).astype("uint8")
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+
+    h = hsv[:, :, 0]
+    s = hsv[:, :, 1]
+    v = hsv[:, :, 2]
+
+    total = h.shape[0] * h.shape[1]
+
+    # cơm trắng / vùng sáng
+    white_mask = (s < 45) & (v > 160)
+
+    # xanh lá
+    green_mask = (h >= 35) & (h <= 95) & (s > 45) & (v > 50)
+
+    # vàng
+    yellow_mask = (h >= 18) & (h <= 38) & (s > 60) & (v > 80)
+
+    # nâu / cam
+    brown_orange_mask = (
+        ((h >= 5) & (h <= 25) & (s > 55) & (v > 45)) |
+        ((h >= 0) & (h <= 10) & (s > 60) & (v > 40))
+    )
+
+    # đỏ / cam rõ
+    red_orange_mask = (
+        ((h >= 0) & (h <= 15) & (s > 60) & (v > 80)) |
+        ((h >= 170) & (h <= 179) & (s > 60) & (v > 80))
+    )
+
+    return {
+        "white_ratio": float(np.sum(white_mask) / total),
+        "green_ratio": float(np.sum(green_mask) / total),
+        "yellow_ratio": float(np.sum(yellow_mask) / total),
+        "brown_orange_ratio": float(np.sum(brown_orange_mask) / total),
+        "red_orange_ratio": float(np.sum(red_orange_mask) / total),
+    }
+
+
+def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
+    """
+    Tự sửa theo màu khi model không chắc.
+    Chỉ sửa trong phạm vi Top 3.
+    """
+    features = get_color_features(crop_img)
+    top3_keys = [item["class_key"] for item in top3]
+
+    corrected_key = raw_class_key
+    note = ""
+
+    # nếu model rất chắc thì giữ nguyên
+    if confidence >= 0.80:
+        return corrected_key, note, features
+
+    white_ratio = features["white_ratio"]
+    green_ratio = features["green_ratio"]
+    yellow_ratio = features["yellow_ratio"]
+    brown_ratio = features["brown_orange_ratio"]
+    red_orange_ratio = features["red_orange_ratio"]
+
+    # Cơm trắng
+    if white_ratio > 0.45 and "com_trang" in top3_keys:
+        corrected_key = "com_trang"
+        note = "Tự sửa theo màu: ảnh có nhiều vùng trắng nên chọn Cơm trắng"
+
+    # Canh rau
+    elif green_ratio > 0.18 and "canh_rau" in top3_keys and raw_class_key in ["canh_chua", "rau_xao", "dau_hu_sot_ca"]:
+        corrected_key = "canh_rau"
+        note = "Tự sửa theo màu: ảnh nhiều xanh nên chọn Canh rau"
+
+    # Rau xào
+    elif green_ratio > 0.22 and "rau_xao" in top3_keys and raw_class_key in ["canh_rau", "canh_chua"]:
+        corrected_key = "rau_xao"
+        note = "Tự sửa theo màu: ảnh nhiều xanh đậm nên chọn Rau xào"
+
+    # Trứng chiên
+    elif yellow_ratio > 0.18 and brown_ratio < 0.10 and "trung_chien" in top3_keys:
+        corrected_key = "trung_chien"
+        note = "Tự sửa theo màu: ảnh nhiều vàng nên chọn Trứng chiên"
+
+    # Thịt kho
+    elif brown_ratio > 0.13 and "thit_kho" in top3_keys:
+        corrected_key = "thit_kho"
+        note = "Tự sửa theo màu: ảnh có nhiều nâu/cam nên chọn Thịt kho"
+
+    # Thịt kho trứng
+    elif brown_ratio > 0.10 and yellow_ratio > 0.08 and "thit_kho_trung" in top3_keys:
+        corrected_key = "thit_kho_trung"
+        note = "Tự sửa theo màu: ảnh có nâu/cam và vàng nên chọn Thịt kho trứng"
+
+    # Canh chua
+    elif red_orange_ratio > 0.10 and green_ratio < 0.15 and "canh_chua" in top3_keys:
+        corrected_key = "canh_chua"
+        note = "Tự sửa theo màu: ảnh có đỏ/cam nên chọn Canh chua"
+
+    return corrected_key, note, features
+
+
+def predict_one_image(model, image, input_size, use_color_correction=True):
+    img = image.convert("RGB")
     img = img.resize(input_size)
 
     arr = np.array(img).astype("float32")
     arr = np.expand_dims(arr, axis=0)
 
-    # QUAN TRỌNG:
-    # Giống code test Colab của anh:
-    # from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-    # img_array = preprocess_input(img_array)
-    # Không chia /255.0 nữa.
+    # giống Colab
     arr = preprocess_input(arr)
 
-    preds = model.predict(arr, verbose=0)[0]
+    prediction = model.predict(arr, verbose=0)[0]
 
-    top_indices = np.argsort(preds)[::-1][:3]
+    pred_index = int(np.argmax(prediction))
+    confidence = float(prediction[pred_index])
+    raw_class_key = CLASS_NAMES[pred_index]
+
+    top_indices = np.argsort(prediction)[::-1][:3]
 
     top3 = []
     for idx in top_indices:
         idx = int(idx)
-        class_key = CLASS_NAMES[idx]
-
+        key = CLASS_NAMES[idx]
         top3.append({
-            "class_key": class_key,
-            "food_name": DISPLAY_NAMES[class_key],
-            "confidence": float(preds[idx])
+            "class_key": key,
+            "food_name": DISPLAY_NAMES[key],
+            "confidence": float(prediction[idx])
         })
 
-    best_idx = int(top_indices[0])
-    class_key = CLASS_NAMES[best_idx]
+    correction_note = ""
+    features = {}
+
+    if use_color_correction:
+        class_key, correction_note, features = smart_correct_by_color(
+            raw_class_key,
+            confidence,
+            top3,
+            image
+        )
+    else:
+        class_key = raw_class_key
+
     food_name = DISPLAY_NAMES[class_key]
     price = PRICE_TABLE[class_key]
-    confidence = float(preds[best_idx])
 
-    return class_key, food_name, price, confidence, top3
+    return raw_class_key, class_key, food_name, price, confidence, top3, correction_note, features
+
+
+def top3_to_text(top3):
+    return " | ".join([
+        f"{item['food_name']} {item['confidence'] * 100:.1f}%"
+        for item in top3
+    ])
 
 
 # =========================
-# GIAO DIỆN APP
+# SESSION STATE
+# =========================
+if "results" not in st.session_state:
+    st.session_state.results = {}
+
+if "manual_results" not in st.session_state:
+    st.session_state.manual_results = {}
+
+
+# =========================
+# APP
 # =========================
 st.markdown('<div class="title">🍱 AD Food Tray Recognition</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Tự cắt khay thông minh, nhận diện món ăn và tính tiền</div>',
+    '<div class="subtitle">Cắt 5 ô trong khay, nhận diện từng ô và tự sửa theo màu</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
     """
     <div class="note-box">
-    <b>Cách hoạt động:</b> App tự tìm khay trong ảnh, cắt khay ra trước, sau đó chia thành 5 ô để nhận diện.
+    <b>Cách dùng:</b> Anh upload hoặc chụp ảnh khay. App sẽ cắt ra 5 ô trước.
+    Sau đó anh chọn từng ô và bấm <b>Nhận diện ô này</b>.
     <br><br>
-    <b>Tiền xử lý model:</b> Đã dùng preprocess_input của MobileNetV2 giống code test trên Colab.
-    <br><br>
+    <b>Tự sửa theo màu:</b> chỉ hỗ trợ khi model chưa chắc chắn.
+    <br>
     <b>Canh chua:</b> tính chung 10.000 đ. Hiện tại chưa đếm số trứng.
     </div>
     """,
@@ -449,25 +433,27 @@ input_size = get_model_input_size(model)
 
 if len(CLASS_NAMES) != model.output_shape[-1]:
     st.error(
-        f"Số class trong app là {len(CLASS_NAMES)}, nhưng model output là {model.output_shape[-1]}. "
-        "Anh cần kiểm tra lại CLASS_NAMES."
+        f"Số class trong app là {len(CLASS_NAMES)}, nhưng model output là {model.output_shape[-1]}."
     )
     st.stop()
 
 st.success(f"Đã tải model thành công. Input model: {input_size[0]}x{input_size[1]}")
 
+use_color_correction = st.checkbox(
+    "Bật tự sửa theo màu khi model nhận diện chưa chắc",
+    value=True
+)
+
 left, right = st.columns(2)
 
 with left:
-    st.subheader("📤 Tải ảnh khay đồ ăn")
     uploaded_file = st.file_uploader(
-        "Chọn ảnh khay",
+        "📤 Tải ảnh khay đồ ăn",
         type=["jpg", "jpeg", "png"]
     )
 
 with right:
-    st.subheader("📷 Chụp trực tiếp")
-    camera_file = st.camera_input("Chụp ảnh khay đồ ăn")
+    camera_file = st.camera_input("📷 Chụp ảnh khay đồ ăn")
 
 image_file = uploaded_file if uploaded_file is not None else camera_file
 
@@ -475,162 +461,218 @@ if image_file is None:
     st.info("Anh hãy tải ảnh khay đồ ăn hoặc chụp trực tiếp để bắt đầu.")
     st.stop()
 
-original_image = Image.open(image_file).convert("RGB")
+image = Image.open(image_file).convert("RGB")
+
+# reset nếu đổi ảnh
+image_id = image_file.name if hasattr(image_file, "name") else "camera_image"
+
+if "current_image_id" not in st.session_state:
+    st.session_state.current_image_id = image_id
+
+if st.session_state.current_image_id != image_id:
+    st.session_state.current_image_id = image_id
+    st.session_state.results = {}
+    st.session_state.manual_results = {}
 
 # =========================
-# CẮT KHAY THÔNG MINH
+# CẮT 5 Ô
 # =========================
-tray_image, tray_status = smart_find_tray(original_image)
-boxed_tray = draw_boxes(tray_image)
+crops = {}
+
+for position, box in ROI_RATIOS.items():
+    crops[position] = crop_by_ratio(image, box)
 
 st.write("---")
-st.subheader("1. Ảnh gốc và khay sau khi tự cắt")
+st.subheader("1. Ảnh khay và vùng cắt")
 
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 
 with col1:
-    st.image(original_image, caption="Ảnh gốc", use_container_width=True)
+    st.image(image, caption="Ảnh gốc", use_container_width=True)
 
 with col2:
-    st.image(tray_image, caption=f"Khay đã tự cắt - {tray_status}", use_container_width=True)
+    boxed_image = draw_boxes(image)
+    st.image(boxed_image, caption="5 ô được cắt trong khay", use_container_width=True)
 
-with col3:
-    st.image(boxed_tray, caption="5 ô sẽ được cắt từ khay", use_container_width=True)
-
-# =========================
-# CẮT 5 Ô + DỰ ĐOÁN
-# =========================
 st.write("---")
-st.subheader("2. Ảnh sau khi cắt từng ô")
-
-results = []
-crop_data = []
-
-for position, ratio_box in ROI_RATIOS.items():
-    crop_img = crop_by_ratio(tray_image, ratio_box)
-    class_key, food_name, price, confidence, top3 = predict_food(model, crop_img, input_size)
-
-    top3_text = " | ".join(
-        [f"{item['food_name']} {item['confidence'] * 100:.1f}%" for item in top3]
-    )
-
-    results.append({
-        "Vị trí": position,
-        "Class": class_key,
-        "Món nhận diện": food_name,
-        "Top 3 dự đoán": top3_text,
-        "Độ tin cậy": confidence,
-        "Giá tiền": price
-    })
-
-    crop_data.append({
-        "position": position,
-        "crop_img": crop_img,
-        "class_key": class_key,
-        "food_name": food_name,
-        "price": price,
-        "confidence": confidence,
-        "top3": top3
-    })
+st.subheader("2. 5 ảnh đã cắt từ khay")
 
 crop_cols = st.columns(5)
 
-for i, item in enumerate(crop_data):
+for i, position in enumerate(ROI_RATIOS.keys()):
     with crop_cols[i]:
-        st.image(
-            item["crop_img"],
-            caption=f'{item["position"]}\n{item["food_name"]} - {item["confidence"] * 100:.1f}%',
-            use_container_width=True
-        )
+        st.image(crops[position], caption=position, use_container_width=True)
 
 # =========================
-# BẢNG KẾT QUẢ
+# NHẬN DIỆN TỪNG Ô
 # =========================
 st.write("---")
-st.subheader("3. Kết quả nhận diện và tính tiền")
+st.subheader("3. Chọn từng ô để nhận diện")
 
-df = pd.DataFrame(results)
-
-df_show = df.copy()
-df_show["Độ tin cậy"] = df_show["Độ tin cậy"].apply(lambda x: f"{x * 100:.2f}%")
-df_show["Giá tiền"] = df_show["Giá tiền"].apply(format_money)
-
-st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-total_price = int(df["Giá tiền"].sum())
-
-st.markdown(
-    f"""
-    <div class="total-box">
-        <div class="total-title">Tổng tiền theo model</div>
-        <div class="total-money">{format_money(total_price)}</div>
-    </div>
-    """,
-    unsafe_allow_html=True
+selected_position = st.selectbox(
+    "Chọn ô cần nhận diện",
+    options=list(ROI_RATIOS.keys())
 )
 
-low_conf_df = df[df["Độ tin cậy"] < 0.5]
+col_a, col_b = st.columns([1, 1.4])
 
-if len(low_conf_df) > 0:
-    st.warning("Có món có độ tin cậy dưới 50%. Anh nên kiểm tra lại ảnh cắt hoặc chỉnh món ở phần dưới.")
+with col_a:
+    st.image(crops[selected_position], caption=f"Ảnh đang chọn: {selected_position}", use_container_width=True)
+
+with col_b:
+    if st.button("🔍 Nhận diện ô này"):
+        raw_class_key, class_key, food_name, price, confidence, top3, correction_note, features = predict_one_image(
+            model,
+            crops[selected_position],
+            input_size,
+            use_color_correction=use_color_correction
+        )
+
+        st.session_state.results[selected_position] = {
+            "position": selected_position,
+            "raw_class_key": raw_class_key,
+            "class_key": class_key,
+            "food_name": food_name,
+            "price": price,
+            "confidence": confidence,
+            "top3": top3,
+            "correction_note": correction_note,
+            "features": features
+        }
+
+        st.session_state.manual_results[selected_position] = class_key
+
+    if selected_position in st.session_state.results:
+        item = st.session_state.results[selected_position]
+
+        st.success(f"Món dự đoán: {item['food_name']}")
+        st.write(f"Độ tin cậy model gốc: **{item['confidence'] * 100:.2f}%**")
+        st.write(f"Top 3: {top3_to_text(item['top3'])}")
+        st.write(f"Giá: **{format_money(item['price'])}**")
+
+        if item.get("correction_note"):
+            st.warning(item["correction_note"])
+            st.caption(f"Model gốc đoán: {DISPLAY_NAMES[item['raw_class_key']]}")
+
+        if item.get("features"):
+            f = item["features"]
+            st.caption(
+                f"Màu ảnh: trắng={f.get('white_ratio',0):.2f} | "
+                f"xanh={f.get('green_ratio',0):.2f} | "
+                f"vàng={f.get('yellow_ratio',0):.2f} | "
+                f"nâu/cam={f.get('brown_orange_ratio',0):.2f} | "
+                f"đỏ/cam={f.get('red_orange_ratio',0):.2f}"
+            )
+    else:
+        st.info("Anh bấm nút nhận diện để dự đoán ô này.")
 
 # =========================
-# CHỈNH THỦ CÔNG NẾU MODEL NHẬN SAI
+# KẾT QUẢ ĐÃ NHẬN DIỆN
 # =========================
 st.write("---")
-st.subheader("4. Chỉnh món nếu model nhận sai")
+st.subheader("4. Các ô đã nhận diện")
 
-manual_total = 0
-manual_rows = []
+if len(st.session_state.results) == 0:
+    st.warning("Chưa có ô nào được nhận diện.")
+else:
+    rows = []
 
-food_options = list(DISPLAY_NAMES.keys())
+    for position, item in st.session_state.results.items():
+        rows.append({
+            "Vị trí": position,
+            "Model gốc": DISPLAY_NAMES[item["raw_class_key"]],
+            "Món sau sửa": item["food_name"],
+            "Độ tin cậy": item["confidence"],
+            "Top 3": top3_to_text(item["top3"]),
+            "Giá tiền": item["price"]
+        })
 
-for idx, item in enumerate(crop_data):
-    col_a, col_b, col_c = st.columns([1.2, 2, 1])
+    df = pd.DataFrame(rows)
 
-    with col_a:
-        st.image(item["crop_img"], caption=item["position"], use_container_width=True)
+    df_show = df.copy()
+    df_show["Độ tin cậy"] = df_show["Độ tin cậy"].apply(lambda x: f"{x * 100:.2f}%")
+    df_show["Giá tiền"] = df_show["Giá tiền"].apply(format_money)
 
-    with col_b:
-        default_index = food_options.index(item["class_key"])
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
 
-        selected_key = st.selectbox(
-            f"Chọn món cho {item['position']}",
-            options=food_options,
-            index=default_index,
-            format_func=lambda key: DISPLAY_NAMES[key],
-            key=f"select_food_{idx}"
-        )
+    total_model = int(df["Giá tiền"].sum())
 
-        top3_view = " | ".join(
-            [f"{x['food_name']} {x['confidence'] * 100:.1f}%" for x in item["top3"]]
-        )
-        st.caption(f"Top 3: {top3_view}")
+    st.markdown(
+        f"""
+        <div class="total-box">
+            <div class="total-title">Tổng tiền các ô đã nhận diện</div>
+            <div class="total-money">{format_money(total_model)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    with col_c:
-        selected_price = PRICE_TABLE[selected_key]
-        st.metric("Giá", format_money(selected_price))
+# =========================
+# CHỈNH MÓN THỦ CÔNG
+# =========================
+if len(st.session_state.results) > 0:
+    st.write("---")
+    st.subheader("5. Chỉnh món nếu model vẫn sai")
 
-    manual_total += selected_price
+    food_options = list(DISPLAY_NAMES.keys())
+    manual_rows = []
+    manual_total = 0
 
-    manual_rows.append({
-        "Vị trí": item["position"],
-        "Món sau chỉnh": DISPLAY_NAMES[selected_key],
-        "Giá tiền": selected_price
-    })
+    for position, item in st.session_state.results.items():
+        col_img, col_select, col_price = st.columns([1.2, 2, 1])
 
-manual_df = pd.DataFrame(manual_rows)
-manual_df_show = manual_df.copy()
-manual_df_show["Giá tiền"] = manual_df_show["Giá tiền"].apply(format_money)
+        with col_img:
+            st.image(crops[position], caption=position, use_container_width=True)
 
-st.dataframe(manual_df_show, use_container_width=True, hide_index=True)
+        with col_select:
+            default_key = st.session_state.manual_results.get(position, item["class_key"])
+            default_index = food_options.index(default_key)
 
-st.markdown(
-    f"""
-    <div class="total-box">
-        <div class="total-title">Tổng tiền sau khi chỉnh</div>
-        <div class="total-money">{format_money(manual_total)}</div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+            selected_key = st.selectbox(
+                f"Chọn món đúng cho {position}",
+                options=food_options,
+                index=default_index,
+                format_func=lambda key: DISPLAY_NAMES[key],
+                key=f"manual_{position}"
+            )
+
+            st.session_state.manual_results[position] = selected_key
+            st.caption("Top 3: " + top3_to_text(item["top3"]))
+
+        with col_price:
+            selected_price = PRICE_TABLE[selected_key]
+            st.metric("Giá", format_money(selected_price))
+
+        manual_total += selected_price
+
+        manual_rows.append({
+            "Vị trí": position,
+            "Món sau chỉnh": DISPLAY_NAMES[selected_key],
+            "Giá tiền": selected_price
+        })
+
+    manual_df = pd.DataFrame(manual_rows)
+    manual_df_show = manual_df.copy()
+    manual_df_show["Giá tiền"] = manual_df_show["Giá tiền"].apply(format_money)
+
+    st.dataframe(manual_df_show, use_container_width=True, hide_index=True)
+
+    st.markdown(
+        f"""
+        <div class="total-box">
+            <div class="total-title">Tổng tiền sau khi chỉnh</div>
+            <div class="total-money">{format_money(manual_total)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# =========================
+# RESET
+# =========================
+st.write("---")
+
+if st.button("🗑️ Xóa kết quả nhận diện"):
+    st.session_state.results = {}
+    st.session_state.manual_results = {}
+    st.rerun()
