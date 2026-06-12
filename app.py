@@ -52,9 +52,6 @@ PRICE_TABLE = {
     "trung_chien": 12000
 }
 
-# Model của anh train bằng preprocessing_function=preprocess_input
-PREPROCESS_MODE = "mobilenetv2"
-
 
 # =========================
 # SETUP STREAMLIT
@@ -91,15 +88,6 @@ st.markdown(
         margin-bottom: 30px;
     }
 
-    .card {
-        background: white;
-        padding: 24px;
-        border-radius: 22px;
-        box-shadow: 0 4px 18px rgba(0,0,0,0.10);
-        margin-bottom: 18px;
-        color: #1f2937;
-    }
-
     .feature-card {
         background: white;
         border: 2px solid #fed7aa;
@@ -115,13 +103,13 @@ st.markdown(
         color: #c2410c;
     }
 
-    .result-box {
+    .info-card {
         background: white;
-        border: 2px solid #fed7aa;
-        padding: 18px;
-        border-radius: 18px;
-        margin-bottom: 16px;
+        padding: 24px;
+        border-radius: 22px;
         color: #1f2937;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.10);
+        margin-top: 20px;
     }
 
     .total-box {
@@ -133,15 +121,6 @@ st.markdown(
         font-size: 32px;
         font-weight: 900;
         margin-top: 20px;
-    }
-
-    .small-note {
-        background: #fff7ed;
-        border-left: 6px solid #f97316;
-        padding: 16px;
-        border-radius: 14px;
-        color: #7c2d12;
-        margin-top: 15px;
     }
 
     div.stButton > button {
@@ -158,10 +137,6 @@ st.markdown(
         background-color: #ea580c;
         color: white;
     }
-
-    .stDataFrame {
-        background: white;
-    }
     </style>
     """,
     unsafe_allow_html=True
@@ -173,14 +148,13 @@ st.markdown(
 # =========================
 @st.cache_resource
 def load_food_model():
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    return model
+    return tf.keras.models.load_model(MODEL_PATH, compile=False)
 
 
 try:
     model = load_food_model()
 except Exception as e:
-    st.error("Không load được model. Anh kiểm tra lại tên file model phải là: food_model_final.h5")
+    st.error("Không load được model. Anh kiểm tra file model phải tên là food_model_final.h5")
     st.exception(e)
     st.stop()
 
@@ -196,10 +170,8 @@ def preprocess_crop(crop_rgb):
     img = cv2.resize(crop_rgb, (IMG_SIZE, IMG_SIZE))
     img = img.astype(np.float32)
 
-    if PREPROCESS_MODE == "mobilenetv2":
-        img = preprocess_input(img)
-    else:
-        img = img / 255.0
+    # Model của anh train bằng preprocessing_function=preprocess_input
+    img = preprocess_input(img)
 
     img = np.expand_dims(img, axis=0)
     return img
@@ -219,118 +191,172 @@ def predict_food(crop_rgb):
     return class_name, display_name, confidence, price
 
 
-def nms_boxes(boxes, overlap_thresh=0.35):
-    if len(boxes) == 0:
-        return []
-
-    boxes_np = np.array(boxes, dtype=np.float32)
-
-    x1 = boxes_np[:, 0]
-    y1 = boxes_np[:, 1]
-    x2 = boxes_np[:, 0] + boxes_np[:, 2]
-    y2 = boxes_np[:, 1] + boxes_np[:, 3]
-
-    area = (x2 - x1 + 1) * (y2 - y1 + 1)
-    idxs = np.argsort(area)
-
-    pick = []
-
-    while len(idxs) > 0:
-        last = idxs[-1]
-        pick.append(last)
-        idxs = idxs[:-1]
-
-        if len(idxs) == 0:
-            break
-
-        xx1 = np.maximum(x1[last], x1[idxs])
-        yy1 = np.maximum(y1[last], y1[idxs])
-        xx2 = np.minimum(x2[last], x2[idxs])
-        yy2 = np.minimum(y2[last], y2[idxs])
-
-        w = np.maximum(0, xx2 - xx1 + 1)
-        h = np.maximum(0, yy2 - yy1 + 1)
-
-        overlap = (w * h) / area[idxs]
-        idxs = idxs[overlap <= overlap_thresh]
-
-    return boxes_np[pick].astype(int).tolist()
-
-
-def detect_food_regions(image_rgb):
+def detect_tray_box(image_rgb):
     """
-    Tự tìm vùng món ăn bằng OpenCV.
-    Bản này phù hợp để demo với model classification .h5.
+    OpenCV tìm vùng khay lớn trong ảnh.
+    Nếu tìm không được thì dùng gần toàn bộ ảnh.
     """
     h, w = image_rgb.shape[:2]
 
-    max_width = 1000
-    scale = 1.0
+    gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    if w > max_width:
-        scale = max_width / w
-        image_small = cv2.resize(image_rgb, (max_width, int(h * scale)))
-    else:
-        image_small = image_rgb.copy()
+    edges = cv2.Canny(gray, 50, 150)
 
-    hsv = cv2.cvtColor(image_small, cv2.COLOR_RGB2HSV)
+    kernel = np.ones((9, 9), np.uint8)
+    edges = cv2.dilate(edges, kernel, iterations=1)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
 
-    # Giữ vùng có màu món ăn, bỏ vùng quá trắng/sáng của khay
-    lower = np.array([0, 20, 20])
-    upper = np.array([179, 255, 245])
-    mask = cv2.inRange(hsv, lower, upper)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    kernel_close = np.ones((25, 25), np.uint8)
-    kernel_open = np.ones((7, 7), np.uint8)
-
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_open)
-
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    boxes = []
-    img_area = image_small.shape[0] * image_small.shape[1]
+    candidates = []
+    image_area = h * w
 
     for cnt in contours:
         x, y, bw, bh = cv2.boundingRect(cnt)
         area = bw * bh
 
-        if area < img_area * 0.008:
+        if area < image_area * 0.25:
             continue
 
-        if bw < 45 or bh < 45:
+        if area > image_area * 0.98:
             continue
 
         ratio = bw / float(bh)
-        if ratio < 0.35 or ratio > 3.5:
-            continue
 
-        boxes.append([x, y, bw, bh])
+        # Khay cơm thường ngang, tỉ lệ khoảng 1.1 đến 2.4
+        if 1.0 <= ratio <= 2.5:
+            candidates.append((x, y, bw, bh, area))
 
-    boxes = nms_boxes(boxes)
+    if len(candidates) > 0:
+        x, y, bw, bh, _ = max(candidates, key=lambda item: item[4])
 
-    final_boxes = []
-
-    for x, y, bw, bh in boxes:
-        x = int(x / scale)
-        y = int(y / scale)
-        bw = int(bw / scale)
-        bh = int(bh / scale)
-
-        pad = 18
+        pad = 8
         x1 = max(0, x - pad)
         y1 = max(0, y - pad)
         x2 = min(w, x + bw + pad)
         y2 = min(h, y + bh + pad)
 
+        return [x1, y1, x2 - x1, y2 - y1], True
+
+    # Fallback nếu OpenCV không tìm được khay
+    return [
+        int(0.04 * w),
+        int(0.12 * h),
+        int(0.92 * w),
+        int(0.78 * h)
+    ], False
+
+
+def get_5_tray_boxes(image_rgb):
+    """
+    Cắt khay thành 5 vùng:
+    3 ô nhỏ phía trên + 1 ô dưới trái + 1 ô cơm lớn dưới phải.
+    """
+    tray_box, found_tray = detect_tray_box(image_rgb)
+    tx, ty, tw, th = tray_box
+
+    boxes = [
+        # Ô 1: trên trái
+        [
+            tx + int(0.03 * tw),
+            ty + int(0.07 * th),
+            int(0.27 * tw),
+            int(0.31 * th)
+        ],
+
+        # Ô 2: trên giữa
+        [
+            tx + int(0.31 * tw),
+            ty + int(0.07 * th),
+            int(0.25 * tw),
+            int(0.31 * th)
+        ],
+
+        # Ô 3: trên phải
+        [
+            tx + int(0.56 * tw),
+            ty + int(0.07 * th),
+            int(0.38 * tw),
+            int(0.31 * th)
+        ],
+
+        # Ô 4: dưới trái
+        [
+            tx + int(0.03 * tw),
+            ty + int(0.42 * th),
+            int(0.34 * tw),
+            int(0.50 * th)
+        ],
+
+        # Ô 5: cơm / ô dưới phải
+        [
+            tx + int(0.37 * tw),
+            ty + int(0.40 * th),
+            int(0.58 * tw),
+            int(0.52 * th)
+        ],
+    ]
+
+    h, w = image_rgb.shape[:2]
+    final_boxes = []
+
+    for x, y, bw, bh in boxes:
+        x1 = max(0, x)
+        y1 = max(0, y)
+        x2 = min(w, x + bw)
+        y2 = min(h, y + bh)
+
         final_boxes.append([x1, y1, x2 - x1, y2 - y1])
 
-    final_boxes = sorted(final_boxes, key=lambda b: (b[1], b[0]))
-    return final_boxes
+    return final_boxes, tray_box, found_tray
 
 
-def draw_boxes(image_rgb, detections):
+def recognize_image(image_rgb, mode):
+    detections = []
+
+    if mode == "Nhận diện 1 món":
+        h, w = image_rgb.shape[:2]
+        boxes = [[0, 0, w, h]]
+        tray_box = None
+        found_tray = True
+    else:
+        boxes, tray_box, found_tray = get_5_tray_boxes(image_rgb)
+
+    for box in boxes:
+        x, y, bw, bh = box
+        crop = image_rgb[y:y + bh, x:x + bw]
+
+        class_name, display_name, confidence, price = predict_food(crop)
+
+        detections.append({
+            "box": box,
+            "crop": crop,
+            "class_name": class_name,
+            "display_name": display_name,
+            "confidence": confidence,
+            "price": price
+        })
+
+    return detections, tray_box, found_tray
+
+
+def draw_boxes(image_rgb, detections, tray_box=None):
     image_draw = image_rgb.copy()
+
+    if tray_box is not None:
+        x, y, w, h = tray_box
+        cv2.rectangle(image_draw, (x, y), (x + w, y + h), (0, 180, 255), 4)
+        cv2.putText(
+            image_draw,
+            "Khay com",
+            (x, max(30, y - 10)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 180, 255),
+            2,
+            cv2.LINE_AA
+        )
 
     for i, det in enumerate(detections):
         x, y, w, h = det["box"]
@@ -345,44 +371,13 @@ def draw_boxes(image_rgb, detections):
             text,
             (x, max(35, y - 10)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
+            0.75,
             (255, 102, 0),
             2,
             cv2.LINE_AA
         )
 
     return image_draw
-
-
-def recognize_image(image_rgb, mode):
-    detections = []
-
-    if mode == "Nhận diện 1 món":
-        h, w = image_rgb.shape[:2]
-        boxes = [[0, 0, w, h]]
-    else:
-        boxes = detect_food_regions(image_rgb)
-
-        if len(boxes) == 0:
-            h, w = image_rgb.shape[:2]
-            boxes = [[0, 0, w, h]]
-
-    for box in boxes:
-        x, y, w, h = box
-        crop = image_rgb[y:y + h, x:x + w]
-
-        class_name, display_name, confidence, price = predict_food(crop)
-
-        detections.append({
-            "box": box,
-            "crop": crop,
-            "class_name": class_name,
-            "display_name": display_name,
-            "confidence": confidence,
-            "price": price
-        })
-
-    return detections
 
 
 # =========================
@@ -397,10 +392,26 @@ if "image_rgb" not in st.session_state:
 if "detections" not in st.session_state:
     st.session_state.detections = []
 
+if "tray_box" not in st.session_state:
+    st.session_state.tray_box = None
+
+if "found_tray" not in st.session_state:
+    st.session_state.found_tray = True
+
+if "result_id" not in st.session_state:
+    st.session_state.result_id = 0
+
 
 def go_page(page_name):
     st.session_state.page = page_name
     st.rerun()
+
+
+def clear_result():
+    st.session_state.image_rgb = None
+    st.session_state.detections = []
+    st.session_state.tray_box = None
+    st.session_state.found_tray = True
 
 
 # =========================
@@ -420,7 +431,7 @@ if st.session_state.page == "home":
             """
             <div class="feature-card">
                 <h3>📷 Thanh toán tại quầy</h3>
-                <p>Chụp hoặc tải ảnh khay cơm, hệ thống tự nhận diện món ăn và tính tổng tiền.</p>
+                <p>Chụp hoặc tải ảnh khay cơm, hệ thống tự cắt 5 ô, nhận diện món ăn và tính tiền.</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -454,16 +465,14 @@ if st.session_state.page == "home":
         if st.button("Đặt món", use_container_width=True):
             go_page("order")
 
-    st.markdown("---")
-
     st.markdown(
         """
-        <div class="card">
+        <div class="info-card">
             <h3 style="color:#c2410c;">Giới thiệu hệ thống</h3>
             <p>
             Ứng dụng sử dụng Python, Streamlit, OpenCV và TensorFlow/Keras để xây dựng
-            hệ thống nhận diện món ăn trên khay cơm. Sau khi nhận diện, hệ thống tự động
-            tra cứu bảng giá và tính tổng hóa đơn cho người dùng.
+            hệ thống nhận diện món ăn trên khay cơm. OpenCV hỗ trợ tìm khay và cắt 5 vùng món ăn,
+            sau đó mô hình CNN nhận diện từng món và hệ thống tự động tính tổng hóa đơn.
             </p>
             <p>
             Phiên bản hiện tại hỗ trợ nhận diện 10 món ăn phổ biến trong căn tin.
@@ -480,7 +489,7 @@ if st.session_state.page == "home":
 elif st.session_state.page == "payment":
     st.markdown('<div class="main-title">📷 Thanh toán tại quầy</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="sub-title">Nhận diện món ăn trên khay và tính tổng tiền tự động</div>',
+        '<div class="sub-title">OpenCV cắt 5 ô khay cơm, AI nhận diện từng món và tính tiền</div>',
         unsafe_allow_html=True
     )
 
@@ -488,21 +497,19 @@ elif st.session_state.page == "payment":
 
     with col_back:
         if st.button("⬅ Quay lại trang chủ"):
-            st.session_state.image_rgb = None
-            st.session_state.detections = []
+            clear_result()
             go_page("home")
 
     with col_clear:
         if st.button("🧹 Xóa kết quả"):
-            st.session_state.image_rgb = None
-            st.session_state.detections = []
+            clear_result()
             st.rerun()
 
     st.markdown("### Chế độ nhận diện")
 
     mode = st.radio(
         "Chọn chế độ:",
-        ["Nhận diện khay nhiều món", "Nhận diện 1 món"],
+        ["Nhận diện khay 5 món", "Nhận diện 1 món"],
         horizontal=True
     )
 
@@ -531,14 +538,30 @@ elif st.session_state.page == "payment":
         st.image(image_rgb, use_container_width=True)
 
         if st.button("🔍 Nhận diện và tính tiền"):
-            st.session_state.detections = recognize_image(image_rgb, mode)
+            detections, tray_box, found_tray = recognize_image(image_rgb, mode)
+
+            st.session_state.detections = detections
+            st.session_state.tray_box = tray_box
+            st.session_state.found_tray = found_tray
+            st.session_state.result_id += 1
+
             st.rerun()
 
     if st.session_state.image_rgb is not None and len(st.session_state.detections) > 0:
-        st.markdown("### Ảnh sau khi nhận diện")
+        st.markdown("### Ảnh sau khi OpenCV cắt vùng")
 
-        image_draw = draw_boxes(st.session_state.image_rgb, st.session_state.detections)
+        image_draw = draw_boxes(
+            st.session_state.image_rgb,
+            st.session_state.detections,
+            st.session_state.tray_box
+        )
         st.image(image_draw, use_container_width=True)
+
+        if st.session_state.found_tray is False and st.session_state.tray_box is not None:
+            st.warning(
+                "OpenCV chưa tìm được khay rõ ràng nên app dùng vùng khay mặc định. "
+                "Nếu box bị lệch, anh nên chụp ảnh thẳng từ trên xuống và để khay nằm giữa ảnh."
+            )
 
         st.markdown("### Hóa đơn món ăn")
 
@@ -546,42 +569,39 @@ elif st.session_state.page == "payment":
         bill_rows = []
 
         for i, det in enumerate(st.session_state.detections):
-            st.markdown('<div class="result-box">', unsafe_allow_html=True)
+            with st.container(border=True):
+                col_img, col_info = st.columns([1, 2])
 
-            col_img, col_info = st.columns([1, 2])
+                with col_img:
+                    st.image(det["crop"], caption=f"Món {i + 1}", use_container_width=True)
 
-            with col_img:
-                st.image(det["crop"], caption=f"Món {i + 1}", use_container_width=True)
+                with col_info:
+                    st.write(f"**Dự đoán:** {det['display_name']}")
+                    st.write(f"**Độ tin cậy:** {det['confidence'] * 100:.2f}%")
 
-            with col_info:
-                st.write(f"**Dự đoán:** {det['display_name']}")
-                st.write(f"**Độ tin cậy:** {det['confidence'] * 100:.2f}%")
+                    current_index = CLASS_NAMES.index(det["class_name"])
 
-                current_index = CLASS_NAMES.index(det["class_name"])
+                    corrected_class = st.selectbox(
+                        f"Sửa món {i + 1} nếu nhận diện sai:",
+                        CLASS_NAMES,
+                        index=current_index,
+                        format_func=lambda x: DISPLAY_NAMES[x],
+                        key=f"correct_{st.session_state.result_id}_{i}"
+                    )
 
-                corrected_class = st.selectbox(
-                    f"Sửa món {i + 1} nếu nhận diện sai:",
-                    CLASS_NAMES,
-                    index=current_index,
-                    format_func=lambda x: DISPLAY_NAMES[x],
-                    key=f"correct_{i}"
-                )
+                    corrected_name = DISPLAY_NAMES[corrected_class]
+                    corrected_price = PRICE_TABLE[corrected_class]
 
-                corrected_name = DISPLAY_NAMES[corrected_class]
-                corrected_price = PRICE_TABLE[corrected_class]
+                    st.write(f"**Giá:** {format_money(corrected_price)}")
 
-                st.write(f"**Giá:** {format_money(corrected_price)}")
+                    total += corrected_price
 
-                total += corrected_price
-
-                bill_rows.append({
-                    "STT": i + 1,
-                    "Tên món": corrected_name,
-                    "Độ tin cậy": f"{det['confidence'] * 100:.2f}%",
-                    "Giá": format_money(corrected_price)
-                })
-
-            st.markdown("</div>", unsafe_allow_html=True)
+                    bill_rows.append({
+                        "STT": i + 1,
+                        "Tên món": corrected_name,
+                        "Độ tin cậy": f"{det['confidence'] * 100:.2f}%",
+                        "Giá": format_money(corrected_price)
+                    })
 
         df_bill = pd.DataFrame(bill_rows)
         st.dataframe(df_bill, use_container_width=True, hide_index=True)
@@ -619,19 +639,9 @@ elif st.session_state.page == "menu":
         })
 
     df_menu = pd.DataFrame(menu_data)
-
-    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.dataframe(df_menu, use_container_width=True, hide_index=True)
-    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown(
-        """
-        <div class="small-note">
-        Giá món ăn có thể chỉnh trực tiếp trong biến PRICE_TABLE ở file app.py.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    st.info("Anh có thể đổi giá món trong biến PRICE_TABLE ở đầu file app.py.")
 
 
 # =========================
