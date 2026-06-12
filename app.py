@@ -1,36 +1,29 @@
 import streamlit as st
+import tensorflow as tf
 import numpy as np
-import pandas as pd
-from PIL import Image, ImageDraw
-import os
 import cv2
-import hashlib
-from io import BytesIO
-
+import pandas as pd
+from PIL import Image
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
-# =========================
-# CONFIG
-# =========================
-st.set_page_config(
-    page_title="AD Food Cashier",
-    page_icon="🍱",
-    layout="wide"
-)
 
+# =========================
+# CẤU HÌNH MODEL
+# =========================
 MODEL_PATH = "food_model_final.h5"
+IMG_SIZE = 224
 
 CLASS_NAMES = [
-    "ca_hu_kho",        # 0
-    "canh_chua",        # 1
-    "canh_rau",         # 2
-    "com_trang",        # 3
-    "dau_hu_sot_ca",    # 4
-    "rau_xao",          # 5
-    "suon_nuong",       # 6
-    "thit_kho",         # 7
-    "thit_kho_trung",   # 8
-    "trung_chien"       # 9
+    "ca_hu_kho",
+    "canh_chua",
+    "canh_rau",
+    "com_trang",
+    "dau_hu_sot_ca",
+    "rau_xao",
+    "suon_nuong",
+    "thit_kho",
+    "thit_kho_trung",
+    "trung_chien"
 ]
 
 DISPLAY_NAMES = {
@@ -47,636 +40,686 @@ DISPLAY_NAMES = {
 }
 
 PRICE_TABLE = {
-    "ca_hu_kho": 30000,
+    "ca_hu_kho": 25000,
     "canh_chua": 10000,
-    "canh_rau": 7000,
-    "com_trang": 10000,
-    "dau_hu_sot_ca": 25000,
+    "canh_rau": 8000,
+    "com_trang": 5000,
+    "dau_hu_sot_ca": 12000,
     "rau_xao": 10000,
-    "suon_nuong": 30000,
-    "thit_kho": 25000,
-    "thit_kho_trung": 30000,
-    "trung_chien": 25000
+    "suon_nuong": 25000,
+    "thit_kho": 20000,
+    "thit_kho_trung": 25000,
+    "trung_chien": 12000
 }
 
-# Tọa độ cắt 5 ô sau khi ảnh đã được crop sát khay
-ROI_RATIOS = {
-    "Ô trên trái":  (0.03, 0.07, 0.31, 0.49),
-    "Ô trên giữa": (0.31, 0.07, 0.59, 0.49),
-    "Ô trên phải": (0.59, 0.07, 0.98, 0.49),
-    "Ô dưới trái": (0.03, 0.50, 0.43, 0.98),
-    "Ô dưới phải": (0.43, 0.50, 0.98, 0.98),
-}
+# Model của anh train bằng preprocessing_function=preprocess_input
+PREPROCESS_MODE = "mobilenetv2"
 
-BOX_COLORS = {
-    "Ô trên trái": "red",
-    "Ô trên giữa": "blue",
-    "Ô trên phải": "green",
-    "Ô dưới trái": "orange",
-    "Ô dưới phải": "purple",
-}
 
 # =========================
-# CSS
+# SETUP STREAMLIT
 # =========================
+st.set_page_config(
+    page_title="AD VietFood Vision",
+    page_icon="🍱",
+    layout="wide"
+)
+
 st.markdown(
     """
     <style>
-    .stApp {
-        background: linear-gradient(135deg, #fff7e6, #ffe0b2, #fff3e0);
+    [data-testid="stSidebar"] {
+        display: none;
+    }
+
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 45%, #fee2e2 100%);
     }
 
     .main-title {
         text-align: center;
-        font-size: 46px;
+        font-size: 48px;
         font-weight: 900;
-        color: #4e2600;
-        margin-bottom: 5px;
+        color: #9a3412;
+        margin-bottom: 8px;
     }
 
     .sub-title {
         text-align: center;
         font-size: 20px;
-        color: #6b3b00;
-        margin-bottom: 25px;
+        color: #7c2d12;
+        margin-bottom: 30px;
     }
 
-    .note-box {
-        background-color: #fff8e1;
-        color: #4e2600;
-        border-left: 8px solid #ff9800;
-        padding: 18px;
-        border-radius: 16px;
-        font-size: 17px;
-        margin-bottom: 20px;
+    .card {
+        background: white;
+        padding: 24px;
+        border-radius: 22px;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.10);
+        margin-bottom: 18px;
+        color: #1f2937;
     }
 
-    .cashier-panel {
-        background-color: #ffffff;
-        border-radius: 24px;
-        padding: 22px;
-        border: 3px solid #ff9800;
-        box-shadow: 0px 6px 22px rgba(0,0,0,0.15);
-    }
-
-    .bill-title {
+    .feature-card {
+        background: white;
+        border: 2px solid #fed7aa;
+        padding: 24px;
+        border-radius: 22px;
         text-align: center;
-        font-size: 30px;
-        font-weight: 900;
-        color: #4e2600;
-        margin-bottom: 12px;
+        height: 230px;
+        color: #1f2937;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    }
+
+    .feature-card h3 {
+        color: #c2410c;
+    }
+
+    .result-box {
+        background: white;
+        border: 2px solid #fed7aa;
+        padding: 18px;
+        border-radius: 18px;
+        margin-bottom: 16px;
+        color: #1f2937;
     }
 
     .total-box {
-        background: linear-gradient(135deg, #fff3e0, #ffffff);
-        border: 3px solid #ff9800;
-        border-radius: 22px;
+        background: linear-gradient(135deg, #f97316, #dc2626);
+        color: white;
         padding: 25px;
+        border-radius: 22px;
         text-align: center;
-        box-shadow: 0px 5px 18px rgba(0,0,0,0.12);
+        font-size: 32px;
+        font-weight: 900;
+        margin-top: 20px;
+    }
+
+    .small-note {
+        background: #fff7ed;
+        border-left: 6px solid #f97316;
+        padding: 16px;
+        border-radius: 14px;
+        color: #7c2d12;
         margin-top: 15px;
     }
 
-    .total-title {
-        font-size: 25px;
-        font-weight: 800;
-        color: #4e2600;
-    }
-
-    .total-money {
-        font-size: 52px;
-        font-weight: 900;
-        color: #d35400;
-    }
-
-    .food-card {
-        background-color: white;
-        border-radius: 18px;
-        padding: 14px;
-        border: 2px solid #ffd18a;
-        box-shadow: 0px 4px 14px rgba(0,0,0,0.10);
-        margin-bottom: 12px;
-    }
-
-    h1, h2, h3, h4, h5, h6, p, label, span {
-        color: #4e2600 !important;
-    }
-
-    .stImage figcaption {
-        color: #4e2600 !important;
-        font-weight: 700 !important;
-    }
-
     div.stButton > button {
-        background-color: #ff9800;
-        color: white !important;
+        background-color: #f97316;
+        color: white;
         border-radius: 14px;
         border: none;
-        font-weight: 800;
         padding: 12px 24px;
-        font-size: 17px;
+        font-weight: 700;
+        font-size: 16px;
     }
 
     div.stButton > button:hover {
-        background-color: #e67e00;
-        color: white !important;
+        background-color: #ea580c;
+        color: white;
+    }
+
+    .stDataFrame {
+        background: white;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-# =========================
-# FUNCTIONS
-# =========================
-def format_money(value):
-    return f"{value:,.0f}".replace(",", ".") + " đ"
 
-
+# =========================
+# LOAD MODEL
+# =========================
 @st.cache_resource
 def load_food_model():
-    if not os.path.exists(MODEL_PATH):
-        st.error(f"Không tìm thấy file model: {MODEL_PATH}")
-        st.stop()
-
-    try:
-        from tensorflow.keras.models import load_model
-        model = load_model(MODEL_PATH, compile=False)
-    except Exception:
-        import keras
-        model = keras.models.load_model(MODEL_PATH, compile=False)
-
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
     return model
 
 
-def get_model_input_size(model):
-    try:
-        shape = model.input_shape
-
-        if isinstance(shape, list):
-            shape = shape[0]
-
-        height = shape[1]
-        width = shape[2]
-
-        if height is None or width is None:
-            return (224, 224)
-
-        return (int(width), int(height))
-
-    except Exception:
-        return (224, 224)
+try:
+    model = load_food_model()
+except Exception as e:
+    st.error("Không load được model. Anh kiểm tra lại tên file model phải là: food_model_final.h5")
+    st.exception(e)
+    st.stop()
 
 
-def get_output_units(model):
-    try:
-        shape = model.output_shape
-
-        if isinstance(shape, list):
-            shape = shape[0]
-
-        return int(shape[-1])
-
-    except Exception:
-        return len(CLASS_NAMES)
+# =========================
+# HÀM PHỤ
+# =========================
+def format_money(value):
+    return f"{value:,.0f}đ".replace(",", ".")
 
 
-def auto_crop_tray(image_pil):
+def preprocess_crop(crop_rgb):
+    img = cv2.resize(crop_rgb, (IMG_SIZE, IMG_SIZE))
+    img = img.astype(np.float32)
+
+    if PREPROCESS_MODE == "mobilenetv2":
+        img = preprocess_input(img)
+    else:
+        img = img / 255.0
+
+    img = np.expand_dims(img, axis=0)
+    return img
+
+
+def predict_food(crop_rgb):
+    x = preprocess_crop(crop_rgb)
+    pred = model.predict(x, verbose=0)[0]
+
+    class_id = int(np.argmax(pred))
+    confidence = float(pred[class_id])
+
+    class_name = CLASS_NAMES[class_id]
+    display_name = DISPLAY_NAMES[class_name]
+    price = PRICE_TABLE[class_name]
+
+    return class_name, display_name, confidence, price
+
+
+def nms_boxes(boxes, overlap_thresh=0.35):
+    if len(boxes) == 0:
+        return []
+
+    boxes_np = np.array(boxes, dtype=np.float32)
+
+    x1 = boxes_np[:, 0]
+    y1 = boxes_np[:, 1]
+    x2 = boxes_np[:, 0] + boxes_np[:, 2]
+    y2 = boxes_np[:, 1] + boxes_np[:, 3]
+
+    area = (x2 - x1 + 1) * (y2 - y1 + 1)
+    idxs = np.argsort(area)
+
+    pick = []
+
+    while len(idxs) > 0:
+        last = idxs[-1]
+        pick.append(last)
+        idxs = idxs[:-1]
+
+        if len(idxs) == 0:
+            break
+
+        xx1 = np.maximum(x1[last], x1[idxs])
+        yy1 = np.maximum(y1[last], y1[idxs])
+        xx2 = np.minimum(x2[last], x2[idxs])
+        yy2 = np.minimum(y2[last], y2[idxs])
+
+        w = np.maximum(0, xx2 - xx1 + 1)
+        h = np.maximum(0, yy2 - yy1 + 1)
+
+        overlap = (w * h) / area[idxs]
+        idxs = idxs[overlap <= overlap_thresh]
+
+    return boxes_np[pick].astype(int).tolist()
+
+
+def detect_food_regions(image_rgb):
     """
-    Tự tìm vùng khay và cắt sát khay.
-    Không warp, không làm méo ảnh.
-    Nếu không tìm được khay thì dùng ảnh gốc.
+    Tự tìm vùng món ăn bằng OpenCV.
+    Bản này phù hợp để demo với model classification .h5.
     """
-    image_rgb = np.array(image_pil.convert("RGB"))
-    image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+    h, w = image_rgb.shape[:2]
 
-    original = image_bgr.copy()
-    h, w = image_bgr.shape[:2]
-
+    max_width = 1000
     scale = 1.0
-    max_side = 1000
 
-    if max(h, w) > max_side:
-        scale = max_side / max(h, w)
-        image_bgr = cv2.resize(
-            image_bgr,
-            (int(w * scale), int(h * scale))
-        )
+    if w > max_width:
+        scale = max_width / w
+        image_small = cv2.resize(image_rgb, (max_width, int(h * scale)))
+    else:
+        image_small = image_rgb.copy()
 
-    small_h, small_w = image_bgr.shape[:2]
+    hsv = cv2.cvtColor(image_small, cv2.COLOR_RGB2HSV)
 
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (7, 7), 0)
+    # Giữ vùng có màu món ăn, bỏ vùng quá trắng/sáng của khay
+    lower = np.array([0, 20, 20])
+    upper = np.array([179, 255, 245])
+    mask = cv2.inRange(hsv, lower, upper)
 
-    edges = cv2.Canny(gray, 40, 130)
+    kernel_close = np.ones((25, 25), np.uint8)
+    kernel_open = np.ones((7, 7), np.uint8)
 
-    kernel = np.ones((7, 7), np.uint8)
-    edges = cv2.dilate(edges, kernel, iterations=2)
-    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_open)
 
-    contours, _ = cv2.findContours(
-        edges,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
-    )
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    if len(contours) == 0:
-        return image_pil, "Không tìm được khay, dùng ảnh gốc"
+    boxes = []
+    img_area = image_small.shape[0] * image_small.shape[1]
 
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
-
-    image_area = small_w * small_h
-    best_box = None
-
-    for cnt in contours[:20]:
+    for cnt in contours:
         x, y, bw, bh = cv2.boundingRect(cnt)
         area = bw * bh
-        ratio = bw / max(bh, 1)
 
-        if area < image_area * 0.20:
+        if area < img_area * 0.008:
             continue
 
-        if area > image_area * 0.98:
+        if bw < 45 or bh < 45:
             continue
 
-        if ratio < 1.05 or ratio > 2.8:
+        ratio = bw / float(bh)
+        if ratio < 0.35 or ratio > 3.5:
             continue
 
-        if bw < small_w * 0.40 or bh < small_h * 0.30:
-            continue
+        boxes.append([x, y, bw, bh])
 
-        best_box = (x, y, bw, bh)
-        break
+    boxes = nms_boxes(boxes)
 
-    if best_box is None:
-        return image_pil, "Không cắt được khay, dùng ảnh gốc"
+    final_boxes = []
 
-    x, y, bw, bh = best_box
+    for x, y, bw, bh in boxes:
+        x = int(x / scale)
+        y = int(y / scale)
+        bw = int(bw / scale)
+        bh = int(bh / scale)
 
-    x = int(x / scale)
-    y = int(y / scale)
-    bw = int(bw / scale)
-    bh = int(bh / scale)
+        pad = 18
+        x1 = max(0, x - pad)
+        y1 = max(0, y - pad)
+        x2 = min(w, x + bw + pad)
+        y2 = min(h, y + bh + pad)
 
-    pad_x = int(bw * 0.025)
-    pad_y = int(bh * 0.025)
+        final_boxes.append([x1, y1, x2 - x1, y2 - y1])
 
-    x1 = max(0, x - pad_x)
-    y1 = max(0, y - pad_y)
-    x2 = min(w, x + bw + pad_x)
-    y2 = min(h, y + bh + pad_y)
-
-    cropped = original[y1:y2, x1:x2]
-
-    if cropped.size == 0:
-        return image_pil, "Crop lỗi, dùng ảnh gốc"
-
-    if cropped.shape[0] > cropped.shape[1]:
-        cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
-
-    cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
-
-    return Image.fromarray(cropped_rgb), "Đã tự cắt sát khay"
+    final_boxes = sorted(final_boxes, key=lambda b: (b[1], b[0]))
+    return final_boxes
 
 
-def crop_by_ratio(image, ratio_box, margin=0.01):
-    w, h = image.size
-    x1, y1, x2, y2 = ratio_box
+def draw_boxes(image_rgb, detections):
+    image_draw = image_rgb.copy()
 
-    x1 = int(x1 * w)
-    y1 = int(y1 * h)
-    x2 = int(x2 * w)
-    y2 = int(y2 * h)
+    for i, det in enumerate(detections):
+        x, y, w, h = det["box"]
+        label = det["display_name"]
+        conf = det["confidence"]
 
-    box_w = x2 - x1
-    box_h = y2 - y1
+        cv2.rectangle(image_draw, (x, y), (x + w, y + h), (255, 102, 0), 4)
 
-    x1 += int(box_w * margin)
-    y1 += int(box_h * margin)
-    x2 -= int(box_w * margin)
-    y2 -= int(box_h * margin)
+        text = f"{i + 1}. {label} {conf * 100:.1f}%"
+        cv2.putText(
+            image_draw,
+            text,
+            (x, max(35, y - 10)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (255, 102, 0),
+            2,
+            cv2.LINE_AA
+        )
 
-    return image.crop((x1, y1, x2, y2))
-
-
-def draw_boxes(image):
-    preview = image.copy()
-    draw = ImageDraw.Draw(preview)
-    w, h = preview.size
-
-    for name, ratio_box in ROI_RATIOS.items():
-        x1, y1, x2, y2 = ratio_box
-
-        x1 = int(x1 * w)
-        y1 = int(y1 * h)
-        x2 = int(x2 * w)
-        y2 = int(y2 * h)
-
-        color = BOX_COLORS.get(name, "red")
-        draw.rectangle((x1, y1, x2, y2), outline=color, width=6)
-        draw.text((x1 + 12, y1 + 12), name, fill=color)
-
-    return preview
+    return image_draw
 
 
-def predict_one_image(model, image, input_size):
-    img = image.convert("RGB")
-    img = img.resize(input_size)
+def recognize_image(image_rgb, mode):
+    detections = []
 
-    arr = np.array(img).astype("float32")
-    arr = np.expand_dims(arr, axis=0)
+    if mode == "Nhận diện 1 món":
+        h, w = image_rgb.shape[:2]
+        boxes = [[0, 0, w, h]]
+    else:
+        boxes = detect_food_regions(image_rgb)
 
-    arr = preprocess_input(arr)
+        if len(boxes) == 0:
+            h, w = image_rgb.shape[:2]
+            boxes = [[0, 0, w, h]]
 
-    prediction = model.predict(arr, verbose=0)[0]
+    for box in boxes:
+        x, y, w, h = box
+        crop = image_rgb[y:y + h, x:x + w]
 
-    pred_index = int(np.argmax(prediction))
-    confidence = float(prediction[pred_index])
+        class_name, display_name, confidence, price = predict_food(crop)
 
-    class_key = CLASS_NAMES[pred_index]
-    food_name = DISPLAY_NAMES[class_key]
-    price = PRICE_TABLE[class_key]
-
-    top_indices = np.argsort(prediction)[::-1][:3]
-
-    top3 = []
-    for idx in top_indices:
-        idx = int(idx)
-        key = CLASS_NAMES[idx]
-        top3.append({
-            "class_key": key,
-            "food_name": DISPLAY_NAMES[key],
-            "confidence": float(prediction[idx])
+        detections.append({
+            "box": box,
+            "crop": crop,
+            "class_name": class_name,
+            "display_name": display_name,
+            "confidence": confidence,
+            "price": price
         })
 
-    return class_key, food_name, price, confidence, top3
-
-
-def top3_to_text(top3):
-    return " | ".join([
-        f"{item['food_name']} {item['confidence'] * 100:.1f}%"
-        for item in top3
-    ])
-
-
-def run_prediction_for_position(position, crop_img, model, input_size):
-    class_key, food_name, price, confidence, top3 = predict_one_image(
-        model,
-        crop_img,
-        input_size
-    )
-
-    st.session_state.results[position] = {
-        "position": position,
-        "class_key": class_key,
-        "food_name": food_name,
-        "price": price,
-        "confidence": confidence,
-        "top3": top3
-    }
-
-    st.session_state.manual_results[position] = class_key
+    return detections
 
 
 # =========================
 # SESSION STATE
 # =========================
-if "results" not in st.session_state:
-    st.session_state.results = {}
+if "page" not in st.session_state:
+    st.session_state.page = "home"
 
-if "manual_results" not in st.session_state:
-    st.session_state.manual_results = {}
+if "image_rgb" not in st.session_state:
+    st.session_state.image_rgb = None
 
-if "current_image_hash" not in st.session_state:
-    st.session_state.current_image_hash = None
+if "detections" not in st.session_state:
+    st.session_state.detections = []
+
+
+def go_page(page_name):
+    st.session_state.page = page_name
+    st.rerun()
 
 
 # =========================
-# APP
+# HOME PAGE
 # =========================
-st.markdown('<div class="main-title">🍱 AD Food Cashier</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sub-title">Hệ thống nhận diện món ăn trong khay và tự động tính tiền</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    """
-    <div class="note-box">
-    <b>Quy trình:</b> Upload hoặc chụp ảnh khay → app tự cắt sát khay → cắt 5 ô món ăn → nhận diện → lập hóa đơn.
-    <br>
-    <b>Lưu ý:</b> Nếu model nhận sai, anh chỉnh lại món trong hóa đơn, tổng tiền sẽ tự cập nhật.
-    <br>
-    <b>Canh chua:</b> tính chung 10.000 đ. Hiện tại chưa đếm số trứng.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-model = load_food_model()
-input_size = get_model_input_size(model)
-output_units = get_output_units(model)
-
-if len(CLASS_NAMES) != output_units:
-    st.error(
-        f"Số class trong app là {len(CLASS_NAMES)}, nhưng model output là {output_units}."
-    )
-    st.stop()
-
-left_upload, right_upload = st.columns(2)
-
-with left_upload:
-    uploaded_file = st.file_uploader(
-        "📤 Tải ảnh khay đồ ăn",
-        type=["jpg", "jpeg", "png"]
+if st.session_state.page == "home":
+    st.markdown('<div class="main-title">🍱 AD VietFood Vision</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sub-title">Hệ thống nhận diện và tính tiền khay cơm căn tin tự động</div>',
+        unsafe_allow_html=True
     )
 
-with right_upload:
-    camera_file = st.camera_input("📷 Chụp ảnh khay đồ ăn")
+    col1, col2, col3 = st.columns(3)
 
-image_file = uploaded_file if uploaded_file is not None else camera_file
+    with col1:
+        st.markdown(
+            """
+            <div class="feature-card">
+                <h3>📷 Thanh toán tại quầy</h3>
+                <p>Chụp hoặc tải ảnh khay cơm, hệ thống tự nhận diện món ăn và tính tổng tiền.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("Vào nhận diện", use_container_width=True):
+            go_page("payment")
 
-if image_file is None:
-    st.info("Anh hãy tải ảnh khay đồ ăn hoặc chụp trực tiếp để bắt đầu.")
-    st.stop()
+    with col2:
+        st.markdown(
+            """
+            <div class="feature-card">
+                <h3>📋 Thực đơn</h3>
+                <p>Tra cứu danh sách món ăn, tên món và giá bán trong căn tin.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("Xem thực đơn", use_container_width=True):
+            go_page("menu")
 
-image_bytes = image_file.getvalue()
-image_hash = hashlib.md5(image_bytes).hexdigest()
+    with col3:
+        st.markdown(
+            """
+            <div class="feature-card">
+                <h3>🛒 Đặt món từ xa</h3>
+                <p>Chọn món, số lượng, áp mã giảm giá và tạo đơn hàng nhanh.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("Đặt món", use_container_width=True):
+            go_page("order")
 
-if st.session_state.current_image_hash != image_hash:
-    st.session_state.current_image_hash = image_hash
-    st.session_state.results = {}
-    st.session_state.manual_results = {}
+    st.markdown("---")
 
-original_image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    st.markdown(
+        """
+        <div class="card">
+            <h3 style="color:#c2410c;">Giới thiệu hệ thống</h3>
+            <p>
+            Ứng dụng sử dụng Python, Streamlit, OpenCV và TensorFlow/Keras để xây dựng
+            hệ thống nhận diện món ăn trên khay cơm. Sau khi nhận diện, hệ thống tự động
+            tra cứu bảng giá và tính tổng hóa đơn cho người dùng.
+            </p>
+            <p>
+            Phiên bản hiện tại hỗ trợ nhận diện 10 món ăn phổ biến trong căn tin.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-tray_image, tray_status = auto_crop_tray(original_image)
-
-crops = {}
-
-for position, box in ROI_RATIOS.items():
-    crops[position] = crop_by_ratio(tray_image, box)
 
 # =========================
-# MAIN LAYOUT
+# PHÂN HỆ 1: THANH TOÁN
 # =========================
-st.write("---")
+elif st.session_state.page == "payment":
+    st.markdown('<div class="main-title">📷 Thanh toán tại quầy</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sub-title">Nhận diện món ăn trên khay và tính tổng tiền tự động</div>',
+        unsafe_allow_html=True
+    )
 
-left, right = st.columns([1.2, 1])
+    col_back, col_clear = st.columns(2)
 
-with left:
-    st.subheader("📷 Ảnh khay xử lý")
+    with col_back:
+        if st.button("⬅ Quay lại trang chủ"):
+            st.session_state.image_rgb = None
+            st.session_state.detections = []
+            go_page("home")
 
-    tab1, tab2, tab3 = st.tabs(["Ảnh gốc", "Khay đã cắt", "Vùng cắt 5 ô"])
-
-    with tab1:
-        st.image(original_image, caption="Ảnh gốc", use_container_width=True)
-
-    with tab2:
-        st.image(tray_image, caption=tray_status, use_container_width=True)
-
-    with tab3:
-        boxed_image = draw_boxes(tray_image)
-        st.image(boxed_image, caption="5 vùng món ăn được cắt", use_container_width=True)
-
-    st.write("")
-    col_btn1, col_btn2 = st.columns(2)
-
-    with col_btn1:
-        if st.button("🔍 Nhận diện & Tính tiền"):
-            with st.spinner("Đang nhận diện món ăn trong khay..."):
-                for position in ROI_RATIOS.keys():
-                    run_prediction_for_position(
-                        position,
-                        crops[position],
-                        model,
-                        input_size
-                    )
-
-            st.success("Đã nhận diện xong và tạo hóa đơn.")
-
-    with col_btn2:
-        if st.button("🗑️ Làm mới kết quả"):
-            st.session_state.results = {}
-            st.session_state.manual_results = {}
+    with col_clear:
+        if st.button("🧹 Xóa kết quả"):
+            st.session_state.image_rgb = None
+            st.session_state.detections = []
             st.rerun()
 
-with right:
-    st.markdown('<div class="cashier-panel">', unsafe_allow_html=True)
-    st.markdown('<div class="bill-title">🧾 HÓA ĐƠN</div>', unsafe_allow_html=True)
+    st.markdown("### Chế độ nhận diện")
 
-    if len(st.session_state.results) == 0:
-        st.warning("Chưa có hóa đơn. Anh bấm nút **Nhận diện & Tính tiền**.")
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        food_options = list(DISPLAY_NAMES.keys())
+    mode = st.radio(
+        "Chọn chế độ:",
+        ["Nhận diện khay nhiều món", "Nhận diện 1 món"],
+        horizontal=True
+    )
+
+    st.markdown("### Chọn ảnh khay cơm")
+
+    col_upload, col_camera = st.columns(2)
+
+    with col_upload:
+        uploaded_file = st.file_uploader(
+            "Tải ảnh lên",
+            type=["jpg", "jpeg", "png"]
+        )
+
+    with col_camera:
+        camera_file = st.camera_input("Chụp ảnh trực tiếp")
+
+    input_file = uploaded_file if uploaded_file is not None else camera_file
+
+    if input_file is not None:
+        image = Image.open(input_file).convert("RGB")
+        image_rgb = np.array(image)
+
+        st.session_state.image_rgb = image_rgb
+
+        st.markdown("### Ảnh đầu vào")
+        st.image(image_rgb, use_container_width=True)
+
+        if st.button("🔍 Nhận diện và tính tiền"):
+            st.session_state.detections = recognize_image(image_rgb, mode)
+            st.rerun()
+
+    if st.session_state.image_rgb is not None and len(st.session_state.detections) > 0:
+        st.markdown("### Ảnh sau khi nhận diện")
+
+        image_draw = draw_boxes(st.session_state.image_rgb, st.session_state.detections)
+        st.image(image_draw, use_container_width=True)
+
+        st.markdown("### Hóa đơn món ăn")
+
+        total = 0
         bill_rows = []
-        final_total = 0
 
-        for idx, position in enumerate(ROI_RATIOS.keys(), start=1):
-            item = st.session_state.results[position]
+        for i, det in enumerate(st.session_state.detections):
+            st.markdown('<div class="result-box">', unsafe_allow_html=True)
 
-            default_key = st.session_state.manual_results.get(
-                position,
-                item["class_key"]
-            )
-
-            default_index = food_options.index(default_key)
-
-            st.markdown('<div class="food-card">', unsafe_allow_html=True)
-
-            col_img, col_info = st.columns([0.9, 1.4])
+            col_img, col_info = st.columns([1, 2])
 
             with col_img:
-                st.image(crops[position], caption=f"Món {idx}", use_container_width=True)
+                st.image(det["crop"], caption=f"Món {i + 1}", use_container_width=True)
 
             with col_info:
-                selected_key = st.selectbox(
-                    f"Món {idx} - {position}",
-                    options=food_options,
-                    index=default_index,
-                    format_func=lambda key: DISPLAY_NAMES[key],
-                    key=f"bill_select_{position}"
+                st.write(f"**Dự đoán:** {det['display_name']}")
+                st.write(f"**Độ tin cậy:** {det['confidence'] * 100:.2f}%")
+
+                current_index = CLASS_NAMES.index(det["class_name"])
+
+                corrected_class = st.selectbox(
+                    f"Sửa món {i + 1} nếu nhận diện sai:",
+                    CLASS_NAMES,
+                    index=current_index,
+                    format_func=lambda x: DISPLAY_NAMES[x],
+                    key=f"correct_{i}"
                 )
 
-                st.session_state.manual_results[position] = selected_key
+                corrected_name = DISPLAY_NAMES[corrected_class]
+                corrected_price = PRICE_TABLE[corrected_class]
 
-                selected_price = PRICE_TABLE[selected_key]
-                final_total += selected_price
+                st.write(f"**Giá:** {format_money(corrected_price)}")
 
-                st.write(f"**Model đoán:** {item['food_name']}")
-                st.write(f"**Độ tin cậy:** {item['confidence'] * 100:.2f}%")
-                st.caption("Top 3: " + top3_to_text(item["top3"]))
-                st.write(f"**Giá:** {format_money(selected_price)}")
+                total += corrected_price
 
                 bill_rows.append({
-                    "STT": idx,
-                    "Vị trí": position,
-                    "Món": DISPLAY_NAMES[selected_key],
-                    "Giá tiền": selected_price
+                    "STT": i + 1,
+                    "Tên món": corrected_name,
+                    "Độ tin cậy": f"{det['confidence'] * 100:.2f}%",
+                    "Giá": format_money(corrected_price)
                 })
 
             st.markdown("</div>", unsafe_allow_html=True)
 
+        df_bill = pd.DataFrame(bill_rows)
+        st.dataframe(df_bill, use_container_width=True, hide_index=True)
+
         st.markdown(
             f"""
             <div class="total-box">
-                <div class="total-title">Tổng tiền cần thanh toán</div>
-                <div class="total-money">{format_money(final_total)}</div>
+                Tổng tiền: {format_money(total)}
             </div>
             """,
             unsafe_allow_html=True
         )
 
-        st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# CROP PREVIEW + BILL TABLE
+# PHÂN HỆ 2: THỰC ĐƠN
 # =========================
-st.write("---")
-st.subheader("🍱 5 món đã cắt từ khay")
+elif st.session_state.page == "menu":
+    st.markdown('<div class="main-title">📋 Thực đơn căn tin</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sub-title">Danh sách món ăn và giá bán</div>',
+        unsafe_allow_html=True
+    )
 
-crop_cols = st.columns(5)
+    if st.button("⬅ Quay lại trang chủ"):
+        go_page("home")
 
-for i, position in enumerate(ROI_RATIOS.keys()):
-    with crop_cols[i]:
-        st.image(crops[position], caption=position, use_container_width=True)
+    menu_data = []
 
-if len(st.session_state.results) > 0:
-    st.write("---")
-    st.subheader("📋 Bảng chi tiết hóa đơn")
-
-    table_rows = []
-    total_table = 0
-
-    for idx, position in enumerate(ROI_RATIOS.keys(), start=1):
-        item = st.session_state.results[position]
-        selected_key = st.session_state.manual_results.get(
-            position,
-            item["class_key"]
-        )
-
-        selected_price = PRICE_TABLE[selected_key]
-        total_table += selected_price
-
-        table_rows.append({
-            "STT": idx,
-            "Vị trí": position,
-            "Món model đoán": item["food_name"],
-            "Món sau chỉnh": DISPLAY_NAMES[selected_key],
-            "Độ tin cậy": f"{item['confidence'] * 100:.2f}%",
-            "Giá tiền": format_money(selected_price)
+    for class_name in CLASS_NAMES:
+        menu_data.append({
+            "Mã món": class_name,
+            "Tên món": DISPLAY_NAMES[class_name],
+            "Giá": format_money(PRICE_TABLE[class_name])
         })
 
-    df_bill = pd.DataFrame(table_rows)
-    st.dataframe(df_bill, use_container_width=True, hide_index=True)
+    df_menu = pd.DataFrame(menu_data)
+
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.dataframe(df_menu, use_container_width=True, hide_index=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown(
-        f"""
-        <div class="total-box">
-            <div class="total-title">Tổng tiền cuối cùng</div>
-            <div class="total-money">{format_money(total_table)}</div>
+        """
+        <div class="small-note">
+        Giá món ăn có thể chỉnh trực tiếp trong biến PRICE_TABLE ở file app.py.
         </div>
         """,
         unsafe_allow_html=True
     )
+
+
+# =========================
+# PHÂN HỆ 3: ĐẶT MÓN TỪ XA
+# =========================
+elif st.session_state.page == "order":
+    st.markdown('<div class="main-title">🛒 Đặt món từ xa</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sub-title">Chọn món, số lượng và tính tổng đơn hàng</div>',
+        unsafe_allow_html=True
+    )
+
+    if st.button("⬅ Quay lại trang chủ"):
+        go_page("home")
+
+    st.markdown("### Tạo đơn hàng")
+
+    order_rows = []
+    subtotal = 0
+
+    for class_name in CLASS_NAMES:
+        col1, col2, col3 = st.columns([2, 1, 1])
+
+        with col1:
+            st.write(f"**{DISPLAY_NAMES[class_name]}**")
+
+        with col2:
+            st.write(format_money(PRICE_TABLE[class_name]))
+
+        with col3:
+            qty = st.number_input(
+                "Số lượng",
+                min_value=0,
+                max_value=20,
+                value=0,
+                step=1,
+                key=f"qty_{class_name}",
+                label_visibility="collapsed"
+            )
+
+        if qty > 0:
+            item_total = PRICE_TABLE[class_name] * qty
+            subtotal += item_total
+
+            order_rows.append({
+                "Tên món": DISPLAY_NAMES[class_name],
+                "Số lượng": qty,
+                "Đơn giá": format_money(PRICE_TABLE[class_name]),
+                "Thành tiền": format_money(item_total)
+            })
+
+    st.markdown("---")
+
+    voucher = st.text_input("Nhập mã giảm giá nếu có:")
+
+    discount = 0
+
+    if voucher.strip().upper() == "AD10":
+        discount = int(subtotal * 0.10)
+    elif voucher.strip().upper() == "AD20":
+        discount = int(subtotal * 0.20)
+
+    final_total = subtotal - discount
+
+    if len(order_rows) > 0:
+        st.markdown("### Chi tiết đơn hàng")
+
+        df_order = pd.DataFrame(order_rows)
+        st.dataframe(df_order, use_container_width=True, hide_index=True)
+
+        st.write(f"**Tạm tính:** {format_money(subtotal)}")
+        st.write(f"**Giảm giá:** {format_money(discount)}")
+
+        st.markdown(
+            f"""
+            <div class="total-box">
+                Tổng thanh toán: {format_money(final_total)}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        if st.button("✅ Xác nhận đặt món"):
+            st.success("Đơn hàng đã được tạo thành công!")
+
+    else:
+        st.info("Anh hãy chọn số lượng món để tạo đơn hàng.")
+
+    st.markdown("### Mã giảm giá mẫu")
+    st.write("`AD10`: giảm 10%")
+    st.write("`AD20`: giảm 20%")
