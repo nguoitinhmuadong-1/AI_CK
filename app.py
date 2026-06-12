@@ -59,13 +59,13 @@ PRICE_TABLE = {
     "trung_chien": 25000
 }
 
-# Cắt trực tiếp từ ảnh khay
+# Tọa độ cắt 5 ô sau khi ảnh đã được tự crop sát khay
 ROI_RATIOS = {
-    "Ô trên trái":  (0.04, 0.08, 0.30, 0.47),
-    "Ô trên giữa": (0.31, 0.07, 0.57, 0.47),
-    "Ô trên phải": (0.62, 0.04, 0.98, 0.48),
-    "Ô dưới trái": (0.04, 0.50, 0.42, 0.98),
-    "Ô dưới phải": (0.45, 0.50, 0.98, 0.97),
+    "Ô trên trái":  (0.03, 0.07, 0.31, 0.49),
+    "Ô trên giữa": (0.31, 0.07, 0.59, 0.49),
+    "Ô trên phải": (0.59, 0.07, 0.98, 0.49),
+    "Ô dưới trái": (0.03, 0.50, 0.43, 0.98),
+    "Ô dưới phải": (0.43, 0.50, 0.98, 0.98),
 }
 
 BOX_COLORS = {
@@ -215,6 +215,108 @@ def get_output_units(model):
         return len(CLASS_NAMES)
 
 
+def auto_crop_tray(image_pil):
+    """
+    Tự tìm vùng khay và cắt sát khay.
+    Không warp ảnh, không làm méo ảnh.
+    Nếu không tìm được khay thì dùng ảnh gốc.
+    """
+    image_rgb = np.array(image_pil.convert("RGB"))
+    image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+
+    original = image_bgr.copy()
+    h, w = image_bgr.shape[:2]
+
+    scale = 1.0
+    max_side = 1000
+
+    if max(h, w) > max_side:
+        scale = max_side / max(h, w)
+        image_bgr = cv2.resize(
+            image_bgr,
+            (int(w * scale), int(h * scale))
+        )
+
+    small_h, small_w = image_bgr.shape[:2]
+
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (7, 7), 0)
+
+    edges = cv2.Canny(gray, 40, 130)
+
+    kernel = np.ones((7, 7), np.uint8)
+    edges = cv2.dilate(edges, kernel, iterations=2)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+
+    contours, _ = cv2.findContours(
+        edges,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    if len(contours) == 0:
+        return image_pil, "Không tìm được khay, dùng ảnh gốc"
+
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+    image_area = small_w * small_h
+    best_box = None
+
+    for cnt in contours[:20]:
+        x, y, bw, bh = cv2.boundingRect(cnt)
+        area = bw * bh
+        ratio = bw / max(bh, 1)
+
+        # Khay thường là hình ngang, chiếm phần lớn ảnh
+        if area < image_area * 0.20:
+            continue
+
+        if area > image_area * 0.98:
+            continue
+
+        if ratio < 1.05 or ratio > 2.8:
+            continue
+
+        if bw < small_w * 0.40 or bh < small_h * 0.30:
+            continue
+
+        best_box = (x, y, bw, bh)
+        break
+
+    if best_box is None:
+        return image_pil, "Không cắt được khay, dùng ảnh gốc"
+
+    x, y, bw, bh = best_box
+
+    # Scale về ảnh gốc
+    x = int(x / scale)
+    y = int(y / scale)
+    bw = int(bw / scale)
+    bh = int(bh / scale)
+
+    # Thêm padding nhẹ để không mất viền khay
+    pad_x = int(bw * 0.025)
+    pad_y = int(bh * 0.025)
+
+    x1 = max(0, x - pad_x)
+    y1 = max(0, y - pad_y)
+    x2 = min(w, x + bw + pad_x)
+    y2 = min(h, y + bh + pad_y)
+
+    cropped = original[y1:y2, x1:x2]
+
+    if cropped.size == 0:
+        return image_pil, "Crop lỗi, dùng ảnh gốc"
+
+    # Nếu bị dọc thì xoay ngang
+    if cropped.shape[0] > cropped.shape[1]:
+        cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
+
+    cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+
+    return Image.fromarray(cropped_rgb), "Đã tự cắt sát khay"
+
+
 def crop_by_ratio(image, ratio_box, margin=0.01):
     w, h = image.size
     x1, y1, x2, y2 = ratio_box
@@ -255,137 +357,7 @@ def draw_boxes(image):
     return preview
 
 
-def get_color_features(crop_img):
-    img = crop_img.convert("RGB").resize((224, 224))
-    rgb = np.array(img).astype("uint8")
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-
-    h = hsv[:, :, 0]
-    s = hsv[:, :, 1]
-    v = hsv[:, :, 2]
-
-    total = h.shape[0] * h.shape[1]
-
-    # Cơm trắng / vùng sáng
-    white_mask = (s < 45) & (v > 160)
-
-    # Rau xanh
-    green_mask = (h >= 35) & (h <= 95) & (s > 45) & (v > 50)
-
-    # Vàng: trứng
-    yellow_mask = (h >= 18) & (h <= 38) & (s > 60) & (v > 80)
-
-    # Nâu/cam: thịt kho, cá kho, nước kho
-    brown_orange_mask = (
-        ((h >= 5) & (h <= 25) & (s > 55) & (v > 45)) |
-        ((h >= 0) & (h <= 10) & (s > 60) & (v > 40))
-    )
-
-    # Đỏ/cam: canh chua, cà chua
-    red_orange_mask = (
-        ((h >= 0) & (h <= 15) & (s > 60) & (v > 80)) |
-        ((h >= 170) & (h <= 179) & (s > 60) & (v > 80))
-    )
-
-    return {
-        "white_ratio": float(np.sum(white_mask) / total),
-        "green_ratio": float(np.sum(green_mask) / total),
-        "yellow_ratio": float(np.sum(yellow_mask) / total),
-        "brown_orange_ratio": float(np.sum(brown_orange_mask) / total),
-        "red_orange_ratio": float(np.sum(red_orange_mask) / total),
-    }
-
-
-def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
-    """
-    Chỉ sửa theo màu khi model dưới 40%.
-    Nếu model >= 40% thì giữ nguyên.
-    Nếu model gốc đã đoán Thịt kho thì không tự đổi sang Thịt kho trứng.
-    """
-    features = get_color_features(crop_img)
-    top3_keys = [item["class_key"] for item in top3]
-
-    corrected_key = raw_class_key
-    note = ""
-
-    CONFIDENCE_THRESHOLD = 0.40
-
-    # Nếu model tự tin từ 40% trở lên thì giữ nguyên
-    if confidence >= CONFIDENCE_THRESHOLD:
-        return corrected_key, note, features
-
-    white_ratio = features["white_ratio"]
-    green_ratio = features["green_ratio"]
-    yellow_ratio = features["yellow_ratio"]
-    brown_ratio = features["brown_orange_ratio"]
-    red_orange_ratio = features["red_orange_ratio"]
-
-    # Giữ Thịt kho nếu model gốc đã đoán Thịt kho
-    # Tránh tự sửa nhầm sang Thịt kho trứng
-    if raw_class_key == "thit_kho":
-        return corrected_key, note, features
-
-    # Cơm trắng
-    if white_ratio > 0.50 and "com_trang" in top3_keys:
-        corrected_key = "com_trang"
-        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều trắng nên chọn Cơm trắng"
-
-    # Canh rau
-    elif (
-        green_ratio > 0.22
-        and "canh_rau" in top3_keys
-        and raw_class_key in ["canh_chua", "rau_xao", "dau_hu_sot_ca"]
-    ):
-        corrected_key = "canh_rau"
-        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều xanh nên chọn Canh rau"
-
-    # Rau xào
-    elif (
-        green_ratio > 0.26
-        and "rau_xao" in top3_keys
-        and raw_class_key in ["canh_rau", "canh_chua"]
-    ):
-        corrected_key = "rau_xao"
-        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều xanh nên chọn Rau xào"
-
-    # Thịt kho trứng
-    # Cần có đủ nâu/cam + vàng + trắng thì mới sửa sang Thịt kho trứng
-    elif (
-        brown_ratio > 0.12
-        and yellow_ratio > 0.14
-        and white_ratio > 0.18
-        and "thit_kho_trung" in top3_keys
-    ):
-        corrected_key = "thit_kho_trung"
-        note = "Model dưới 40%, tự sửa theo màu: ảnh có nâu/cam, vàng và trắng nên chọn Thịt kho trứng"
-
-    # Thịt kho
-    elif brown_ratio > 0.16 and "thit_kho" in top3_keys:
-        corrected_key = "thit_kho"
-        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều nâu/cam nên chọn Thịt kho"
-
-    # Trứng chiên
-    elif (
-        yellow_ratio > 0.22
-        and brown_ratio < 0.10
-        and "trung_chien" in top3_keys
-    ):
-        corrected_key = "trung_chien"
-        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều vàng nên chọn Trứng chiên"
-
-    # Canh chua
-    elif (
-        red_orange_ratio > 0.13
-        and green_ratio < 0.15
-        and "canh_chua" in top3_keys
-    ):
-        corrected_key = "canh_chua"
-        note = "Model dưới 40%, tự sửa theo màu: ảnh có đỏ/cam nên chọn Canh chua"
-
-    return corrected_key, note, features
-
-
-def predict_one_image(model, image, input_size, use_color_correction=True):
+def predict_one_image(model, image, input_size):
     img = image.convert("RGB")
     img = img.resize(input_size)
 
@@ -399,7 +371,10 @@ def predict_one_image(model, image, input_size, use_color_correction=True):
 
     pred_index = int(np.argmax(prediction))
     confidence = float(prediction[pred_index])
-    raw_class_key = CLASS_NAMES[pred_index]
+
+    class_key = CLASS_NAMES[pred_index]
+    food_name = DISPLAY_NAMES[class_key]
+    price = PRICE_TABLE[class_key]
 
     top_indices = np.argsort(prediction)[::-1][:3]
 
@@ -407,29 +382,13 @@ def predict_one_image(model, image, input_size, use_color_correction=True):
     for idx in top_indices:
         idx = int(idx)
         key = CLASS_NAMES[idx]
-
         top3.append({
             "class_key": key,
             "food_name": DISPLAY_NAMES[key],
             "confidence": float(prediction[idx])
         })
 
-    if use_color_correction:
-        class_key, correction_note, features = smart_correct_by_color(
-            raw_class_key,
-            confidence,
-            top3,
-            image
-        )
-    else:
-        class_key = raw_class_key
-        correction_note = ""
-        features = get_color_features(image)
-
-    food_name = DISPLAY_NAMES[class_key]
-    price = PRICE_TABLE[class_key]
-
-    return raw_class_key, class_key, food_name, price, confidence, top3, correction_note, features
+    return class_key, food_name, price, confidence, top3
 
 
 def top3_to_text(top3):
@@ -439,24 +398,20 @@ def top3_to_text(top3):
     ])
 
 
-def run_prediction_for_position(position, crop_img, model, input_size, use_color_correction):
-    raw_class_key, class_key, food_name, price, confidence, top3, correction_note, features = predict_one_image(
+def run_prediction_for_position(position, crop_img, model, input_size):
+    class_key, food_name, price, confidence, top3 = predict_one_image(
         model,
         crop_img,
-        input_size,
-        use_color_correction=use_color_correction
+        input_size
     )
 
     st.session_state.results[position] = {
         "position": position,
-        "raw_class_key": raw_class_key,
         "class_key": class_key,
         "food_name": food_name,
         "price": price,
         "confidence": confidence,
-        "top3": top3,
-        "correction_note": correction_note,
-        "features": features
+        "top3": top3
     }
 
     st.session_state.manual_results[position] = class_key
@@ -480,18 +435,18 @@ if "current_image_hash" not in st.session_state:
 # =========================
 st.markdown('<div class="title">🍱 AD Food Tray Recognition</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Cắt 5 ô trong khay, nhận diện cùng lúc và tính tiền</div>',
+    '<div class="subtitle">Tự cắt sát khay, cắt 5 ô, nhận diện và tính tiền</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
     """
     <div class="note-box">
-    <b>Cách dùng:</b> Anh upload hoặc chụp ảnh khay. App sẽ cắt ra 5 ô trước.
-    Sau đó bấm <b>Nhận diện tất cả 5 ô</b>.
+    <b>Cách dùng:</b> Anh upload hoặc chụp ảnh khay. App sẽ tự cắt sát phần khay trước,
+    sau đó chia thành 5 ô và nhận diện tất cả.
     <br><br>
-    <b>Tự sửa theo màu:</b> chỉ hoạt động khi model gốc dưới 40%.
-    Nếu model từ 40% trở lên thì app giữ nguyên kết quả model.
+    <b>Lưu ý:</b> Đã tắt tự sửa theo màu vì màu các món dễ trùng nhau.
+    Nếu model nhận sai, anh chỉnh món ở phần cuối, tổng tiền sẽ tự tính lại.
     <br>
     <b>Canh chua:</b> tính chung 10.000 đ. Hiện tại chưa đếm số trứng.
     </div>
@@ -510,11 +465,6 @@ if len(CLASS_NAMES) != output_units:
     st.stop()
 
 st.success(f"Đã tải model thành công. Input model: {input_size[0]}x{input_size[1]}")
-
-use_color_correction = st.checkbox(
-    "Bật tự sửa theo màu khi model dưới 40%",
-    value=True
-)
 
 left, right = st.columns(2)
 
@@ -541,7 +491,10 @@ if st.session_state.current_image_hash != image_hash:
     st.session_state.results = {}
     st.session_state.manual_results = {}
 
-image = Image.open(BytesIO(image_bytes)).convert("RGB")
+original_image = Image.open(BytesIO(image_bytes)).convert("RGB")
+
+# Tự cắt sát khay
+tray_image, tray_status = auto_crop_tray(original_image)
 
 # =========================
 # CẮT 5 Ô
@@ -549,19 +502,19 @@ image = Image.open(BytesIO(image_bytes)).convert("RGB")
 crops = {}
 
 for position, box in ROI_RATIOS.items():
-    crops[position] = crop_by_ratio(image, box)
+    crops[position] = crop_by_ratio(tray_image, box)
 
 st.write("---")
-st.subheader("1. Ảnh khay và vùng cắt")
+st.subheader("1. Ảnh gốc và khay sau khi tự cắt")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    st.image(image, caption="Ảnh gốc", use_container_width=True)
+    st.image(original_image, caption="Ảnh gốc", use_container_width=True)
 
 with col2:
-    boxed_image = draw_boxes(image)
-    st.image(boxed_image, caption="5 ô được cắt trong khay", use_container_width=True)
+    boxed_image = draw_boxes(tray_image)
+    st.image(boxed_image, caption=f"Khay đã xử lý - {tray_status}", use_container_width=True)
 
 st.write("---")
 st.subheader("2. 5 ảnh đã cắt từ khay")
@@ -588,8 +541,7 @@ with col_btn1:
                     position,
                     crops[position],
                     model,
-                    input_size,
-                    use_color_correction
+                    input_size
                 )
 
         st.success("Đã nhận diện xong 5 ô đồ ăn.")
@@ -614,11 +566,9 @@ else:
     for position, item in st.session_state.results.items():
         rows.append({
             "Vị trí": position,
-            "Model gốc": DISPLAY_NAMES[item["raw_class_key"]],
-            "Món sau sửa": item["food_name"],
+            "Món model dự đoán": item["food_name"],
             "Độ tin cậy": item["confidence"],
             "Top 3": top3_to_text(item["top3"]),
-            "Ghi chú": item.get("correction_note", ""),
             "Giá tiền": item["price"]
         })
 
@@ -647,7 +597,7 @@ else:
 # =========================
 if len(st.session_state.results) > 0:
     st.write("---")
-    st.subheader("5. Chỉnh món nếu model vẫn sai")
+    st.subheader("5. Chỉnh món nếu model nhận sai")
 
     food_options = list(DISPLAY_NAMES.keys())
     manual_rows = []
