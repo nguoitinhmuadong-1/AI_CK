@@ -1,13 +1,6 @@
 streamlit
 tensorflow
-<<<<<<< HEAD
-numpy
-pillow
-pandas
-opencv-python-headless
-=======
 keras
 numpy
 pandas
 pillow
->>>>>>> da9f624 (first commit)
