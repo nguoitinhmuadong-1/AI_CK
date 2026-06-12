@@ -1,7 +1,7 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 import os
 
 # =========================
@@ -55,14 +55,16 @@ PRICE_TABLE = {
     "trung_chien": 25000
 }
 
-# Vùng cắt 5 ô theo tỉ lệ ảnh khay mẫu
-# Format: x1, y1, x2, y2
+# =========================
+# VÙNG CẮT 5 Ô KHAY
+# Format: x1, y1, x2, y2 theo tỉ lệ ảnh
+# =========================
 ROI_RATIOS = {
-    "Ô trên trái":  (0.03, 0.08, 0.31, 0.52),
-    "Ô trên giữa": (0.31, 0.06, 0.57, 0.52),
-    "Ô trên phải": (0.57, 0.04, 0.98, 0.54),
-    "Ô dưới trái": (0.03, 0.47, 0.44, 0.98),
-    "Ô dưới phải": (0.44, 0.49, 0.98, 0.98),
+    "Ô trên trái":  (0.04, 0.08, 0.30, 0.47),
+    "Ô trên giữa": (0.31, 0.07, 0.57, 0.47),
+    "Ô trên phải": (0.62, 0.04, 0.98, 0.48),
+    "Ô dưới trái": (0.04, 0.50, 0.42, 0.98),
+    "Ô dưới phải": (0.45, 0.50, 0.98, 0.97),
 }
 
 BOX_COLORS = {
@@ -72,7 +74,6 @@ BOX_COLORS = {
     "Ô dưới trái": "orange",
     "Ô dưới phải": "purple",
 }
-
 
 # =========================
 # CSS
@@ -88,14 +89,14 @@ st.markdown(
         text-align: center;
         font-size: 46px;
         font-weight: 900;
-        color: #5d2e0c;
+        color: #4e2600;
         margin-bottom: 5px;
     }
 
     .subtitle {
         text-align: center;
         font-size: 20px;
-        color: #7a4a1d;
+        color: #5c3300;
         margin-bottom: 25px;
     }
 
@@ -121,7 +122,7 @@ st.markdown(
     .total-title {
         font-size: 25px;
         font-weight: 800;
-        color: #5d2e0c;
+        color: #4e2600;
     }
 
     .total-money {
@@ -130,9 +131,19 @@ st.markdown(
         color: #d35400;
     }
 
+    h1, h2, h3, h4, h5, h6, p, label, span {
+        color: #4e2600 !important;
+    }
+
+    .stImage figcaption {
+        color: #4e2600 !important;
+        font-weight: 700 !important;
+        font-size: 16px !important;
+    }
+
     div.stButton > button {
         background-color: #ff9800;
-        color: white;
+        color: white !important;
         border-radius: 12px;
         border: none;
         font-weight: 700;
@@ -141,13 +152,12 @@ st.markdown(
 
     div.stButton > button:hover {
         background-color: #e67e00;
-        color: white;
+        color: white !important;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
-
 
 # =========================
 # HÀM XỬ LÝ
@@ -179,18 +189,19 @@ def get_model_input_size(model):
         if isinstance(shape, list):
             shape = shape[0]
 
-        h = shape[1]
-        w = shape[2]
+        height = shape[1]
+        width = shape[2]
 
-        if h is None or w is None:
+        if height is None or width is None:
             return (224, 224)
 
-        return (int(w), int(h))
+        return (int(width), int(height))
+
     except Exception:
         return (224, 224)
 
 
-def crop_by_ratio(image, ratio_box, margin=0.025):
+def crop_by_ratio(image, ratio_box, margin=0.01):
     w, h = image.size
     x1, y1, x2, y2 = ratio_box
 
@@ -235,19 +246,34 @@ def predict_food(model, crop_img, input_size):
     img = crop_img.convert("RGB")
     img = img.resize(input_size)
 
-    arr = np.array(img).astype("float32") / 255.0
+    arr = np.array(img).astype("float32")
+
+    # Vì lúc train anh dùng rescale=1./255
+    arr = arr / 255.0
+
     arr = np.expand_dims(arr, axis=0)
 
     preds = model.predict(arr, verbose=0)[0]
 
-    class_index = int(np.argmax(preds))
-    confidence = float(preds[class_index])
+    top_indices = np.argsort(preds)[::-1][:3]
 
-    class_key = CLASS_NAMES[class_index]
+    top3 = []
+    for idx in top_indices:
+        idx = int(idx)
+        class_key = CLASS_NAMES[idx]
+        top3.append({
+            "class_key": class_key,
+            "food_name": DISPLAY_NAMES[class_key],
+            "confidence": float(preds[idx])
+        })
+
+    best_idx = int(top_indices[0])
+    class_key = CLASS_NAMES[best_idx]
     food_name = DISPLAY_NAMES[class_key]
     price = PRICE_TABLE[class_key]
+    confidence = float(preds[best_idx])
 
-    return class_key, food_name, price, confidence
+    return class_key, food_name, price, confidence, top3
 
 
 # =========================
@@ -262,7 +288,7 @@ st.markdown(
 st.markdown(
     """
     <div class="note-box">
-    <b>Lưu ý:</b> App đang cắt theo khay mẫu cố định anh gửi. 
+    <b>Lưu ý:</b> App đang cắt theo khay mẫu cố định anh gửi.
     Khi chụp hoặc tải ảnh lên, anh nên để ảnh ngang, thấy rõ toàn bộ khay, hạn chế nghiêng quá nhiều.
     <br><br>
     <b>Canh chua có cá và không cá đã được gộp thành:</b> Canh chua = 10.000 đ.
@@ -275,7 +301,14 @@ st.markdown(
 model = load_food_model()
 input_size = get_model_input_size(model)
 
-st.success(f"Đã tải model thành công. Kích thước ảnh model dùng: {input_size[0]}x{input_size[1]}")
+if len(CLASS_NAMES) != model.output_shape[-1]:
+    st.error(
+        f"Số class trong app là {len(CLASS_NAMES)}, nhưng model output là {model.output_shape[-1]}. "
+        "Anh cần kiểm tra lại CLASS_NAMES."
+    )
+    st.stop()
+
+st.success(f"Đã tải model thành công. Input model: {input_size[0]}x{input_size[1]}")
 
 left, right = st.columns(2)
 
@@ -318,12 +351,17 @@ crop_data = []
 
 for position, ratio_box in ROI_RATIOS.items():
     crop_img = crop_by_ratio(image, ratio_box)
-    class_key, food_name, price, confidence = predict_food(model, crop_img, input_size)
+    class_key, food_name, price, confidence, top3 = predict_food(model, crop_img, input_size)
+
+    top3_text = " | ".join(
+        [f"{item['food_name']} {item['confidence'] * 100:.1f}%" for item in top3]
+    )
 
     results.append({
         "Vị trí": position,
         "Class": class_key,
         "Món nhận diện": food_name,
+        "Top 3 dự đoán": top3_text,
         "Độ tin cậy": confidence,
         "Giá tiền": price
     })
@@ -334,7 +372,8 @@ for position, ratio_box in ROI_RATIOS.items():
         "class_key": class_key,
         "food_name": food_name,
         "price": price,
-        "confidence": confidence
+        "confidence": confidence,
+        "top3": top3
     })
 
 crop_cols = st.columns(5)
@@ -363,17 +402,24 @@ total_price = int(df["Giá tiền"].sum())
 st.markdown(
     f"""
     <div class="total-box">
-        <div class="total-title">Tổng tiền khay đồ ăn</div>
+        <div class="total-title">Tổng tiền khay đồ ăn theo model</div>
         <div class="total-money">{format_money(total_price)}</div>
     </div>
     """,
     unsafe_allow_html=True
 )
 
+low_conf_df = df[df["Độ tin cậy"] < 0.5]
+
+if len(low_conf_df) > 0:
+    st.warning(
+        "Có món có độ tin cậy dưới 50%. Anh nên kiểm tra lại vùng cắt hoặc chỉnh món thủ công ở phần bên dưới."
+    )
+
 st.write("---")
 st.subheader("4. Chỉnh lại món nếu model nhận sai")
 
-st.caption("Phần này giúp anh sửa nhanh món bị nhận diện sai, tổng tiền sẽ tính lại theo món anh chọn.")
+st.caption("Phần này giúp anh sửa nhanh món bị nhận diện sai. Tổng tiền sẽ tính lại theo món anh chọn.")
 
 manual_total = 0
 manual_rows = []
@@ -396,6 +442,11 @@ for idx, item in enumerate(crop_data):
             format_func=lambda key: DISPLAY_NAMES[key],
             key=f"select_food_{idx}"
         )
+
+        top3_view = " | ".join(
+            [f"{x['food_name']} {x['confidence'] * 100:.1f}%" for x in item["top3"]]
+        )
+        st.caption(f"Top 3: {top3_view}")
 
     with col_c:
         selected_price = PRICE_TABLE[selected_key]
@@ -425,8 +476,3 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
-low_conf_df = df[df["Độ tin cậy"] < 0.5]
-
-if len(low_conf_df) > 0:
-    st.warning("Có món có độ tin cậy dưới 50%. Anh nên kiểm tra lại vùng cắt hoặc chỉnh món thủ công ở phần bên dưới.")
