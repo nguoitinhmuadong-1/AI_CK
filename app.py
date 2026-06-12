@@ -60,7 +60,6 @@ PRICE_TABLE = {
 }
 
 # Cắt trực tiếp từ ảnh khay
-# Nếu crop lệch thì chỉnh các tỉ lệ này
 ROI_RATIOS = {
     "Ô trên trái":  (0.04, 0.08, 0.30, 0.47),
     "Ô trên giữa": (0.31, 0.07, 0.57, 0.47),
@@ -289,14 +288,19 @@ def get_color_features(crop_img):
 
 
 def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
+    """
+    Chỉ sửa theo màu khi model dưới 40%.
+    Nếu model >= 40% thì giữ nguyên kết quả model.
+    """
     features = get_color_features(crop_img)
     top3_keys = [item["class_key"] for item in top3]
 
     corrected_key = raw_class_key
     note = ""
 
-    # Model rất chắc thì không sửa
-    if confidence >= 0.80:
+    CONFIDENCE_THRESHOLD = 0.40
+
+    if confidence >= CONFIDENCE_THRESHOLD:
         return corrected_key, note, features
 
     white_ratio = features["white_ratio"]
@@ -305,40 +309,53 @@ def smart_correct_by_color(raw_class_key, confidence, top3, crop_img):
     brown_ratio = features["brown_orange_ratio"]
     red_orange_ratio = features["red_orange_ratio"]
 
-    # Cơm trắng
-    if white_ratio > 0.45 and "com_trang" in top3_keys:
+    if white_ratio > 0.50 and "com_trang" in top3_keys:
         corrected_key = "com_trang"
-        note = "Tự sửa theo màu: ảnh có nhiều vùng trắng nên chọn Cơm trắng"
+        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều trắng nên chọn Cơm trắng"
 
-    # Canh rau
-    elif green_ratio > 0.18 and "canh_rau" in top3_keys and raw_class_key in ["canh_chua", "rau_xao", "dau_hu_sot_ca"]:
+    elif (
+        green_ratio > 0.22
+        and "canh_rau" in top3_keys
+        and raw_class_key in ["canh_chua", "rau_xao", "dau_hu_sot_ca"]
+    ):
         corrected_key = "canh_rau"
-        note = "Tự sửa theo màu: ảnh nhiều xanh nên chọn Canh rau"
+        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều xanh nên chọn Canh rau"
 
-    # Rau xào
-    elif green_ratio > 0.22 and "rau_xao" in top3_keys and raw_class_key in ["canh_rau", "canh_chua"]:
+    elif (
+        green_ratio > 0.26
+        and "rau_xao" in top3_keys
+        and raw_class_key in ["canh_rau", "canh_chua"]
+    ):
         corrected_key = "rau_xao"
-        note = "Tự sửa theo màu: ảnh nhiều xanh đậm nên chọn Rau xào"
+        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều xanh nên chọn Rau xào"
 
-    # Thịt kho trứng: ưu tiên trước thịt kho nếu có cả nâu và vàng
-    elif brown_ratio > 0.10 and yellow_ratio > 0.08 and "thit_kho_trung" in top3_keys:
+    elif (
+        brown_ratio > 0.12
+        and yellow_ratio > 0.10
+        and "thit_kho_trung" in top3_keys
+    ):
         corrected_key = "thit_kho_trung"
-        note = "Tự sửa theo màu: ảnh có nâu/cam và vàng nên chọn Thịt kho trứng"
+        note = "Model dưới 40%, tự sửa theo màu: ảnh có nâu/cam và vàng nên chọn Thịt kho trứng"
 
-    # Thịt kho
-    elif brown_ratio > 0.13 and "thit_kho" in top3_keys:
+    elif brown_ratio > 0.16 and "thit_kho" in top3_keys:
         corrected_key = "thit_kho"
-        note = "Tự sửa theo màu: ảnh có nhiều nâu/cam nên chọn Thịt kho"
+        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều nâu/cam nên chọn Thịt kho"
 
-    # Trứng chiên
-    elif yellow_ratio > 0.18 and brown_ratio < 0.10 and "trung_chien" in top3_keys:
+    elif (
+        yellow_ratio > 0.22
+        and brown_ratio < 0.10
+        and "trung_chien" in top3_keys
+    ):
         corrected_key = "trung_chien"
-        note = "Tự sửa theo màu: ảnh nhiều vàng nên chọn Trứng chiên"
+        note = "Model dưới 40%, tự sửa theo màu: ảnh nhiều vàng nên chọn Trứng chiên"
 
-    # Canh chua
-    elif red_orange_ratio > 0.10 and green_ratio < 0.15 and "canh_chua" in top3_keys:
+    elif (
+        red_orange_ratio > 0.13
+        and green_ratio < 0.15
+        and "canh_chua" in top3_keys
+    ):
         corrected_key = "canh_chua"
-        note = "Tự sửa theo màu: ảnh có đỏ/cam nên chọn Canh chua"
+        note = "Model dưới 40%, tự sửa theo màu: ảnh có đỏ/cam nên chọn Canh chua"
 
     return corrected_key, note, features
 
@@ -371,9 +388,6 @@ def predict_one_image(model, image, input_size, use_color_correction=True):
             "confidence": float(prediction[idx])
         })
 
-    correction_note = ""
-    features = {}
-
     if use_color_correction:
         class_key, correction_note, features = smart_correct_by_color(
             raw_class_key,
@@ -383,6 +397,8 @@ def predict_one_image(model, image, input_size, use_color_correction=True):
         )
     else:
         class_key = raw_class_key
+        correction_note = ""
+        features = get_color_features(image)
 
     food_name = DISPLAY_NAMES[class_key]
     price = PRICE_TABLE[class_key]
@@ -438,7 +454,7 @@ if "current_image_hash" not in st.session_state:
 # =========================
 st.markdown('<div class="title">🍱 AD Food Tray Recognition</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Cắt 5 ô trong khay, nhận diện cùng lúc hoặc từng ô, có tự sửa theo màu</div>',
+    '<div class="subtitle">Cắt 5 ô trong khay, nhận diện cùng lúc và tính tiền</div>',
     unsafe_allow_html=True
 )
 
@@ -446,9 +462,10 @@ st.markdown(
     """
     <div class="note-box">
     <b>Cách dùng:</b> Anh upload hoặc chụp ảnh khay. App sẽ cắt ra 5 ô trước.
-    Anh có thể bấm <b>Nhận diện tất cả 5 ô</b> hoặc chọn từng ô để nhận diện riêng.
+    Sau đó bấm <b>Nhận diện tất cả 5 ô</b>.
     <br><br>
-    <b>Tự sửa theo màu:</b> chỉ hỗ trợ khi model chưa chắc chắn. Nếu vẫn sai, anh chỉnh tay ở phần cuối.
+    <b>Tự sửa theo màu:</b> chỉ hoạt động khi model gốc dưới 40%.
+    Nếu model từ 40% trở lên thì app giữ nguyên kết quả model.
     <br>
     <b>Canh chua:</b> tính chung 10.000 đ. Hiện tại chưa đếm số trứng.
     </div>
@@ -469,7 +486,7 @@ if len(CLASS_NAMES) != output_units:
 st.success(f"Đã tải model thành công. Input model: {input_size[0]}x{input_size[1]}")
 
 use_color_correction = st.checkbox(
-    "Bật tự sửa theo màu khi model nhận diện chưa chắc",
+    "Bật tự sửa theo màu khi model dưới 40%",
     value=True
 )
 
@@ -530,14 +547,14 @@ for i, position in enumerate(ROI_RATIOS.keys()):
         st.image(crops[position], caption=position, use_container_width=True)
 
 # =========================
-# NHẬN DIỆN
+# NHẬN DIỆN TẤT CẢ
 # =========================
 st.write("---")
-st.subheader("3. Nhận diện món ăn")
+st.subheader("3. Nhận diện tất cả 5 ô")
 
-col_all, col_clear = st.columns([1, 1])
+col_btn1, col_btn2 = st.columns(2)
 
-with col_all:
+with col_btn1:
     if st.button("🔍 Nhận diện tất cả 5 ô"):
         with st.spinner("Đang nhận diện 5 ô đồ ăn..."):
             for position in ROI_RATIOS.keys():
@@ -551,70 +568,20 @@ with col_all:
 
         st.success("Đã nhận diện xong 5 ô đồ ăn.")
 
-with col_clear:
+with col_btn2:
     if st.button("🗑️ Xóa kết quả nhận diện"):
         st.session_state.results = {}
         st.session_state.manual_results = {}
         st.rerun()
 
-st.write("")
-
-selected_position = st.selectbox(
-    "Hoặc chọn từng ô để nhận diện riêng",
-    options=list(ROI_RATIOS.keys())
-)
-
-col_a, col_b = st.columns([1, 1.4])
-
-with col_a:
-    st.image(
-        crops[selected_position],
-        caption=f"Ảnh đang chọn: {selected_position}",
-        use_container_width=True
-    )
-
-with col_b:
-    if st.button("🔍 Nhận diện ô này"):
-        run_prediction_for_position(
-            selected_position,
-            crops[selected_position],
-            model,
-            input_size,
-            use_color_correction
-        )
-
-    if selected_position in st.session_state.results:
-        item = st.session_state.results[selected_position]
-
-        st.success(f"Món dự đoán: {item['food_name']}")
-        st.write(f"Độ tin cậy model gốc: **{item['confidence'] * 100:.2f}%**")
-        st.write(f"Top 3: {top3_to_text(item['top3'])}")
-        st.write(f"Giá: **{format_money(item['price'])}**")
-
-        if item.get("correction_note"):
-            st.warning(item["correction_note"])
-            st.caption(f"Model gốc đoán: {DISPLAY_NAMES[item['raw_class_key']]}")
-
-        if item.get("features"):
-            f = item["features"]
-            st.caption(
-                f"Màu ảnh: trắng={f.get('white_ratio', 0):.2f} | "
-                f"xanh={f.get('green_ratio', 0):.2f} | "
-                f"vàng={f.get('yellow_ratio', 0):.2f} | "
-                f"nâu/cam={f.get('brown_orange_ratio', 0):.2f} | "
-                f"đỏ/cam={f.get('red_orange_ratio', 0):.2f}"
-            )
-    else:
-        st.info("Anh bấm nút nhận diện để dự đoán ô này.")
-
 # =========================
 # BẢNG KẾT QUẢ MODEL
 # =========================
 st.write("---")
-st.subheader("4. Các ô đã nhận diện")
+st.subheader("4. Kết quả nhận diện")
 
 if len(st.session_state.results) == 0:
-    st.warning("Chưa có ô nào được nhận diện.")
+    st.warning("Chưa có kết quả. Anh bấm nút nhận diện tất cả 5 ô.")
 else:
     rows = []
 
