@@ -4,3 +4,4 @@ keras
 numpy
 pandas
 pillow
+opencv-python-headless
