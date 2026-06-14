@@ -5,12 +5,13 @@ import cv2
 import pandas as pd
 from PIL import Image
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+import os
 
 
 # =========================
 # CẤU HÌNH MODEL
 # =========================
-MODEL_PATH = "best_food_mobilenetv2"
+MODEL_PATH = "best_food_mobilenetv2.h5"
 IMG_SIZE = 224
 
 CLASS_NAMES = [
@@ -40,16 +41,16 @@ DISPLAY_NAMES = {
 }
 
 PRICE_TABLE = {
-    "ca_hu_kho": 25000,
+    "ca_hu_kho": 30000,
     "canh_chua": 10000,
-    "canh_rau": 8000,
-    "com_trang": 5000,
-    "dau_hu_sot_ca": 12000,
+    "canh_rau": 7000,
+    "com_trang": 10000,
+    "dau_hu_sot_ca": 25000,
     "rau_xao": 10000,
-    "suon_nuong": 25000,
-    "thit_kho": 20000,
-    "thit_kho_trung": 25000,
-    "trung_chien": 12000
+    "suon_nuong": 30000,
+    "thit_kho": 25000,
+    "thit_kho_trung": 30000,
+    "trung_chien": 25000
 }
 
 
@@ -152,30 +153,26 @@ def load_food_model():
         st.error(f"Không tìm thấy file model: {MODEL_PATH}")
         st.stop()
 
-    from tensorflow.keras.models import load_model
-    model = load_model(MODEL_PATH, compile=False)
-
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
     return model
+
 
 # =========================
 # HÀM PHỤ
 # =========================
 def format_money(value):
-    return f"{value:,.0f}đ".replace(",", ".")
+    return f"{value:,.0f} đ".replace(",", ".")
 
 
 def preprocess_crop(crop_rgb):
     img = cv2.resize(crop_rgb, (IMG_SIZE, IMG_SIZE))
     img = img.astype(np.float32)
-
-    # Model của anh train bằng preprocessing_function=preprocess_input
     img = preprocess_input(img)
-
     img = np.expand_dims(img, axis=0)
     return img
 
 
-def predict_food(crop_rgb):
+def predict_food(crop_rgb, model):
     x = preprocess_crop(crop_rgb)
     pred = model.predict(x, verbose=0)[0]
 
@@ -186,7 +183,26 @@ def predict_food(crop_rgb):
     display_name = DISPLAY_NAMES[class_name]
     price = PRICE_TABLE[class_name]
 
-    return class_name, display_name, confidence, price
+    top_indices = np.argsort(pred)[::-1][:3]
+    top3 = []
+
+    for idx in top_indices:
+        idx = int(idx)
+        key = CLASS_NAMES[idx]
+        top3.append({
+            "class_name": key,
+            "display_name": DISPLAY_NAMES[key],
+            "confidence": float(pred[idx])
+        })
+
+    return class_name, display_name, confidence, price, top3
+
+
+def top3_to_text(top3):
+    return " | ".join([
+        f"{item['display_name']} {item['confidence'] * 100:.1f}%"
+        for item in top3
+    ])
 
 
 def detect_tray_box(image_rgb):
@@ -205,7 +221,11 @@ def detect_tray_box(image_rgb):
     edges = cv2.dilate(edges, kernel, iterations=1)
     edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
 
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        edges,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE
+    )
 
     candidates = []
     image_area = h * w
@@ -222,34 +242,34 @@ def detect_tray_box(image_rgb):
 
         ratio = bw / float(bh)
 
-        # Khay cơm thường ngang, tỉ lệ khoảng 1.1 đến 2.4
-        if 1.0 <= ratio <= 2.5:
+        if 1.0 <= ratio <= 2.8:
             candidates.append((x, y, bw, bh, area))
 
     if len(candidates) > 0:
         x, y, bw, bh, _ = max(candidates, key=lambda item: item[4])
 
-        pad = 8
-        x1 = max(0, x - pad)
-        y1 = max(0, y - pad)
-        x2 = min(w, x + bw + pad)
-        y2 = min(h, y + bh + pad)
+        pad_x = int(bw * 0.02)
+        pad_y = int(bh * 0.02)
+
+        x1 = max(0, x - pad_x)
+        y1 = max(0, y - pad_y)
+        x2 = min(w, x + bw + pad_x)
+        y2 = min(h, y + bh + pad_y)
 
         return [x1, y1, x2 - x1, y2 - y1], True
 
-    # Fallback nếu OpenCV không tìm được khay
     return [
-        int(0.04 * w),
-        int(0.12 * h),
-        int(0.92 * w),
-        int(0.78 * h)
+        int(0.03 * w),
+        int(0.08 * h),
+        int(0.94 * w),
+        int(0.86 * h)
     ], False
 
 
 def get_5_tray_boxes(image_rgb):
     """
     Cắt khay thành 5 vùng:
-    3 ô nhỏ phía trên + 1 ô dưới trái + 1 ô cơm lớn dưới phải.
+    3 ô nhỏ phía trên + 2 ô phía dưới.
     """
     tray_box, found_tray = detect_tray_box(image_rgb)
     tx, ty, tw, th = tray_box
@@ -259,40 +279,40 @@ def get_5_tray_boxes(image_rgb):
         [
             tx + int(0.03 * tw),
             ty + int(0.07 * th),
-            int(0.27 * tw),
-            int(0.31 * th)
+            int(0.28 * tw),
+            int(0.39 * th)
         ],
 
         # Ô 2: trên giữa
         [
             tx + int(0.31 * tw),
             ty + int(0.07 * th),
-            int(0.25 * tw),
-            int(0.31 * th)
+            int(0.28 * tw),
+            int(0.39 * th)
         ],
 
         # Ô 3: trên phải
         [
-            tx + int(0.56 * tw),
+            tx + int(0.59 * tw),
             ty + int(0.07 * th),
-            int(0.38 * tw),
-            int(0.31 * th)
+            int(0.39 * tw),
+            int(0.39 * th)
         ],
 
         # Ô 4: dưới trái
         [
             tx + int(0.03 * tw),
-            ty + int(0.42 * th),
-            int(0.34 * tw),
-            int(0.50 * th)
+            ty + int(0.48 * th),
+            int(0.40 * tw),
+            int(0.49 * th)
         ],
 
-        # Ô 5: cơm / ô dưới phải
+        # Ô 5: dưới phải
         [
-            tx + int(0.37 * tw),
-            ty + int(0.40 * th),
-            int(0.58 * tw),
-            int(0.52 * th)
+            tx + int(0.43 * tw),
+            ty + int(0.48 * th),
+            int(0.55 * tw),
+            int(0.49 * th)
         ],
     ]
 
@@ -310,7 +330,7 @@ def get_5_tray_boxes(image_rgb):
     return final_boxes, tray_box, found_tray
 
 
-def recognize_image(image_rgb, mode):
+def recognize_image(image_rgb, mode, model):
     detections = []
 
     if mode == "Nhận diện 1 món":
@@ -325,7 +345,10 @@ def recognize_image(image_rgb, mode):
         x, y, bw, bh = box
         crop = image_rgb[y:y + bh, x:x + bw]
 
-        class_name, display_name, confidence, price = predict_food(crop)
+        if crop.size == 0:
+            continue
+
+        class_name, display_name, confidence, price, top3 = predict_food(crop, model)
 
         detections.append({
             "box": box,
@@ -333,7 +356,8 @@ def recognize_image(image_rgb, mode):
             "class_name": class_name,
             "display_name": display_name,
             "confidence": confidence,
-            "price": price
+            "price": price,
+            "top3": top3
         })
 
     return detections, tray_box, found_tray
@@ -470,10 +494,7 @@ if st.session_state.page == "home":
             <p>
             Ứng dụng sử dụng Python, Streamlit, OpenCV và TensorFlow/Keras để xây dựng
             hệ thống nhận diện món ăn trên khay cơm. OpenCV hỗ trợ tìm khay và cắt 5 vùng món ăn,
-            sau đó mô hình CNN nhận diện từng món và hệ thống tự động tính tổng hóa đơn.
-            </p>
-            <p>
-            Phiên bản hiện tại hỗ trợ nhận diện 10 món ăn phổ biến trong căn tin.
+            sau đó mô hình CNN MobileNetV2 nhận diện từng món và hệ thống tự động tính tổng hóa đơn.
             </p>
         </div>
         """,
@@ -502,6 +523,8 @@ elif st.session_state.page == "payment":
         if st.button("🧹 Xóa kết quả"):
             clear_result()
             st.rerun()
+
+    food_model = load_food_model()
 
     st.markdown("### Chế độ nhận diện")
 
@@ -536,7 +559,11 @@ elif st.session_state.page == "payment":
         st.image(image_rgb, use_container_width=True)
 
         if st.button("🔍 Nhận diện và tính tiền"):
-            detections, tray_box, found_tray = recognize_image(image_rgb, mode)
+            detections, tray_box, found_tray = recognize_image(
+                image_rgb,
+                mode,
+                food_model
+            )
 
             st.session_state.detections = detections
             st.session_state.tray_box = tray_box
@@ -576,6 +603,7 @@ elif st.session_state.page == "payment":
                 with col_info:
                     st.write(f"**Dự đoán:** {det['display_name']}")
                     st.write(f"**Độ tin cậy:** {det['confidence'] * 100:.2f}%")
+                    st.caption("Top 3: " + top3_to_text(det["top3"]))
 
                     current_index = CLASS_NAMES.index(det["class_name"])
 
