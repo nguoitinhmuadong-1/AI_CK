@@ -148,16 +148,14 @@ st.markdown(
 # =========================
 @st.cache_resource
 def load_food_model():
-    return tf.keras.models.load_model(MODEL_PATH, compile=False)
+    if not os.path.exists(MODEL_PATH):
+        st.error(f"Không tìm thấy file model: {MODEL_PATH}")
+        st.stop()
 
+    from tensorflow.keras.models import load_model
+    model = load_model(MODEL_PATH, compile=False)
 
-try:
-    model = load_food_model()
-except Exception as e:
-    st.error("Không load được model. Anh kiểm tra file model phải tên là food_model_final.h5")
-    st.exception(e)
-    st.stop()
-
+    return model
 
 # =========================
 # HÀM PHỤ
