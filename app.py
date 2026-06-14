@@ -10,7 +10,7 @@ from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 # =========================
 # CẤU HÌNH MODEL
 # =========================
-MODEL_PATH = "food_model_final.h5"
+MODEL_PATH = "best_food_mobilenetv2"
 IMG_SIZE = 224
 
 CLASS_NAMES = [
