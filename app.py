@@ -330,16 +330,11 @@ def get_5_tray_boxes(image_rgb):
     return final_boxes, tray_box, found_tray
 
 
-def recognize_image(image_rgb, mode, model):
+def recognize_image(image_rgb, model):
     detections = []
 
-    if mode == "Nhận diện 1 món":
-        h, w = image_rgb.shape[:2]
-        boxes = [[0, 0, w, h]]
-        tray_box = None
-        found_tray = True
-    else:
-        boxes, tray_box, found_tray = get_5_tray_boxes(image_rgb)
+    # Chỉ nhận diện khay 5 món
+    boxes, tray_box, found_tray = get_5_tray_boxes(image_rgb)
 
     for box in boxes:
         x, y, bw, bh = box
@@ -408,6 +403,9 @@ def draw_boxes(image_rgb, detections, tray_box=None):
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
+if st.session_state.page not in ["home", "payment", "menu"]:
+    st.session_state.page = "home"
+
 if "image_rgb" not in st.session_state:
     st.session_state.image_rgb = None
 
@@ -446,7 +444,7 @@ if st.session_state.page == "home":
         unsafe_allow_html=True
     )
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
 
     with col1:
         st.markdown(
@@ -474,18 +472,6 @@ if st.session_state.page == "home":
         if st.button("Xem thực đơn", use_container_width=True):
             go_page("menu")
 
-    with col3:
-        st.markdown(
-            """
-            <div class="feature-card">
-                <h3>🛒 Đặt món từ xa</h3>
-                <p>Chọn món, số lượng, áp mã giảm giá và tạo đơn hàng nhanh.</p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        if st.button("Đặt món", use_container_width=True):
-            go_page("order")
 
     st.markdown(
         """
@@ -526,14 +512,6 @@ elif st.session_state.page == "payment":
 
     food_model = load_food_model()
 
-    st.markdown("### Chế độ nhận diện")
-
-    mode = st.radio(
-        "Chọn chế độ:",
-        ["Nhận diện khay 5 món", "Nhận diện 1 món"],
-        horizontal=True
-    )
-
     st.markdown("### Chọn ảnh khay cơm")
 
     col_upload, col_camera = st.columns(2)
@@ -561,7 +539,6 @@ elif st.session_state.page == "payment":
         if st.button("🔍 Nhận diện và tính tiền"):
             detections, tray_box, found_tray = recognize_image(
                 image_rgb,
-                mode,
                 food_model
             )
 
@@ -669,93 +646,3 @@ elif st.session_state.page == "menu":
 
     st.info("Anh có thể đổi giá món trong biến PRICE_TABLE ở đầu file app.py.")
 
-
-# =========================
-# PHÂN HỆ 3: ĐẶT MÓN TỪ XA
-# =========================
-elif st.session_state.page == "order":
-    st.markdown('<div class="main-title">🛒 Đặt món từ xa</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="sub-title">Chọn món, số lượng và tính tổng đơn hàng</div>',
-        unsafe_allow_html=True
-    )
-
-    if st.button("⬅ Quay lại trang chủ"):
-        go_page("home")
-
-    st.markdown("### Tạo đơn hàng")
-
-    order_rows = []
-    subtotal = 0
-
-    for class_name in CLASS_NAMES:
-        col1, col2, col3 = st.columns([2, 1, 1])
-
-        with col1:
-            st.write(f"**{DISPLAY_NAMES[class_name]}**")
-
-        with col2:
-            st.write(format_money(PRICE_TABLE[class_name]))
-
-        with col3:
-            qty = st.number_input(
-                "Số lượng",
-                min_value=0,
-                max_value=20,
-                value=0,
-                step=1,
-                key=f"qty_{class_name}",
-                label_visibility="collapsed"
-            )
-
-        if qty > 0:
-            item_total = PRICE_TABLE[class_name] * qty
-            subtotal += item_total
-
-            order_rows.append({
-                "Tên món": DISPLAY_NAMES[class_name],
-                "Số lượng": qty,
-                "Đơn giá": format_money(PRICE_TABLE[class_name]),
-                "Thành tiền": format_money(item_total)
-            })
-
-    st.markdown("---")
-
-    voucher = st.text_input("Nhập mã giảm giá nếu có:")
-
-    discount = 0
-
-    if voucher.strip().upper() == "AD10":
-        discount = int(subtotal * 0.10)
-    elif voucher.strip().upper() == "AD20":
-        discount = int(subtotal * 0.20)
-
-    final_total = subtotal - discount
-
-    if len(order_rows) > 0:
-        st.markdown("### Chi tiết đơn hàng")
-
-        df_order = pd.DataFrame(order_rows)
-        st.dataframe(df_order, use_container_width=True, hide_index=True)
-
-        st.write(f"**Tạm tính:** {format_money(subtotal)}")
-        st.write(f"**Giảm giá:** {format_money(discount)}")
-
-        st.markdown(
-            f"""
-            <div class="total-box">
-                Tổng thanh toán: {format_money(final_total)}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        if st.button("✅ Xác nhận đặt món"):
-            st.success("Đơn hàng đã được tạo thành công!")
-
-    else:
-        st.info("Anh hãy chọn số lượng món để tạo đơn hàng.")
-
-    st.markdown("### Mã giảm giá mẫu")
-    st.write("`AD10`: giảm 10%")
-    st.write("`AD20`: giảm 20%")
