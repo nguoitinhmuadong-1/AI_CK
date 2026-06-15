@@ -262,6 +262,63 @@ st.markdown(
         margin-top: 0;
     }
 
+
+
+    .mode-card {
+        background: linear-gradient(135deg, #ffffff, #fff7ed);
+        border: 3px solid #fb923c;
+        border-radius: 24px;
+        padding: 22px 26px;
+        margin: 16px 0 12px 0;
+        color: #7c2d12;
+        box-shadow: 0 8px 26px rgba(249, 115, 22, 0.22);
+    }
+
+    .mode-title {
+        font-size: 26px;
+        font-weight: 900;
+        color: #9a3412;
+        margin-bottom: 6px;
+    }
+
+    .mode-desc {
+        font-size: 17px;
+        font-weight: 650;
+        color: #7c2d12;
+    }
+
+    div[data-testid="stRadio"] {
+        background: rgba(255, 255, 255, 0.92);
+        border: 2px solid #fdba74;
+        border-radius: 20px;
+        padding: 18px 22px;
+        margin-bottom: 18px;
+        box-shadow: 0 5px 18px rgba(0,0,0,0.08);
+    }
+
+    div[data-testid="stRadio"] label {
+        background: #fff7ed;
+        border: 2px solid #fed7aa;
+        border-radius: 16px;
+        padding: 12px 18px;
+        margin-right: 16px;
+        color: #7c2d12 !important;
+        font-size: 18px !important;
+        font-weight: 850 !important;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.06);
+    }
+
+    div[data-testid="stRadio"] label:hover {
+        background: #ffedd5;
+        border-color: #fb923c;
+    }
+
+    div[data-testid="stRadio"] label:has(input:checked) {
+        background: linear-gradient(135deg, #fed7aa, #fdba74);
+        border-color: #ea580c;
+        box-shadow: 0 5px 16px rgba(249, 115, 22, 0.35);
+    }
+
     </style>
     """,
     unsafe_allow_html=True
@@ -700,12 +757,22 @@ elif st.session_state.page == "payment":
             clear_result()
             st.rerun()
 
-    st.markdown("### Chọn kiểu thanh toán")
+    st.markdown(
+        """
+        <div class="mode-card">
+            <div class="mode-title">💳 Chọn kiểu thanh toán</div>
+            <div class="mode-desc">Anh chọn thanh toán cho 1 khay hiện tại hoặc gom nhiều khay rồi thanh toán một lần.</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     tray_pay_mode = st.radio(
-        "Anh muốn thanh toán theo kiểu nào?",
+        "Chọn kiểu thanh toán",
         ["1 khay duy nhất", "Nhiều khay cùng lúc"],
         horizontal=True,
-        key="tray_pay_mode"
+        key="tray_pay_mode",
+        label_visibility="collapsed"
     )
 
     if tray_pay_mode == "Nhiều khay cùng lúc" and len(st.session_state.multi_order_rows) > 0 and st.session_state.payment_step == "scan":
