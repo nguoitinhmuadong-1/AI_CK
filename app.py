@@ -922,14 +922,43 @@ elif st.session_state.page == "review":
 
         for i, row in enumerate(order_rows):
             st.markdown(f"#### {i + 1}. {row['Tên món']} - {row['Giá']}")
-            rating = st.slider(
-                f"Số sao cho {row['Tên món']}",
-                min_value=1,
-                max_value=5,
-                value=5,
-                step=1,
-                key=f"rating_{i}"
-            )
+            st.caption("Bấm trực tiếp vào số sao để đánh giá")
+
+            # st.feedback('stars') hiển thị dạng sao có thể bấm trực tiếp.
+            # Giá trị trả về là 0-4, nên cộng thêm 1 để thành 1-5 sao.
+            try:
+                selected_star = st.feedback(
+                    "stars",
+                    key=f"rating_star_{st.session_state.result_id}_{i}"
+                )
+
+                if selected_star is None:
+                    rating = 0
+                    st.write("Chưa chọn sao")
+                else:
+                    rating = selected_star + 1
+                    st.write(f"Đã chọn: {rating}/5 sao")
+
+            except Exception:
+                # Dự phòng nếu bản Streamlit quá cũ chưa hỗ trợ st.feedback
+                if f"rating_fallback_{i}" not in st.session_state:
+                    st.session_state[f"rating_fallback_{i}"] = 5
+
+                star_cols = st.columns(5)
+                for star in range(1, 6):
+                    with star_cols[star - 1]:
+                        star_symbol = "★" if star <= st.session_state[f"rating_fallback_{i}"] else "☆"
+                        if st.button(
+                            star_symbol,
+                            key=f"star_btn_{st.session_state.result_id}_{i}_{star}",
+                            use_container_width=True
+                        ):
+                            st.session_state[f"rating_fallback_{i}"] = star
+                            st.rerun()
+
+                rating = st.session_state[f"rating_fallback_{i}"]
+                st.write(f"Đã chọn: {rating}/5 sao")
+
             review_data.append({"Tên món": row["Tên món"], "Số sao": rating})
 
         comment = st.text_area(
@@ -977,5 +1006,5 @@ elif st.session_state.page == "menu":
     df_menu = pd.DataFrame(menu_data)
     st.dataframe(df_menu, use_container_width=True, hide_index=True)
 
-
+    st.info("Anh có thể đổi giá món trong biến PRICE_TABLE ở đầu file app.py.")
 
