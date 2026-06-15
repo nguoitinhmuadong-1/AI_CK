@@ -247,6 +247,21 @@ st.markdown(
         box-shadow: 0 4px 18px rgba(0,0,0,0.08);
     }
 
+    .summary-card {
+        background: white;
+        border: 2px solid #fed7aa;
+        border-radius: 22px;
+        padding: 18px 22px;
+        margin: 14px 0;
+        color: #1f2937;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    }
+
+    .summary-card h3 {
+        color: #c2410c;
+        margin-top: 0;
+    }
+
     </style>
     """,
     unsafe_allow_html=True
@@ -566,20 +581,47 @@ if "checkout_rows" not in st.session_state:
 if "checkout_total" not in st.session_state:
     st.session_state.checkout_total = 0
 
+if "multi_order_rows" not in st.session_state:
+    st.session_state.multi_order_rows = []
+
+if "multi_total" not in st.session_state:
+    st.session_state.multi_total = 0
+
+if "tray_count" not in st.session_state:
+    st.session_state.tray_count = 0
+
 
 def go_page(page_name):
     st.session_state.page = page_name
     st.rerun()
 
 
-def clear_result():
+def clear_current_scan():
     st.session_state.image_rgb = None
     st.session_state.detections = []
     st.session_state.tray_box = None
     st.session_state.found_tray = True
+
+
+def clear_result():
+    clear_current_scan()
     st.session_state.payment_step = "scan"
     st.session_state.checkout_rows = []
     st.session_state.checkout_total = 0
+    st.session_state.multi_order_rows = []
+    st.session_state.multi_total = 0
+    st.session_state.tray_count = 0
+
+
+def add_tray_column(rows, tray_number):
+    rows_with_tray = []
+
+    for row in rows:
+        new_row = row.copy()
+        new_row = {"Khay": tray_number, **new_row}
+        rows_with_tray.append(new_row)
+
+    return rows_with_tray
 
 
 # =========================
@@ -658,6 +700,58 @@ elif st.session_state.page == "payment":
             clear_result()
             st.rerun()
 
+    st.markdown("### Chọn kiểu thanh toán")
+    tray_pay_mode = st.radio(
+        "Anh muốn thanh toán theo kiểu nào?",
+        ["1 khay duy nhất", "Nhiều khay cùng lúc"],
+        horizontal=True,
+        key="tray_pay_mode"
+    )
+
+    if tray_pay_mode == "Nhiều khay cùng lúc" and len(st.session_state.multi_order_rows) > 0 and st.session_state.payment_step == "scan":
+        st.markdown("### 🧾 Hóa đơn nhiều khay đã lưu")
+        st.markdown(
+            f"""
+            <div class="summary-card">
+                <h3>Đã lưu {st.session_state.tray_count} khay</h3>
+                <p>Anh có thể chụp thêm khay khác hoặc thanh toán tất cả các khay đã lưu.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.dataframe(
+            pd.DataFrame(st.session_state.multi_order_rows),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.markdown(
+            f"""
+            <div class="total-box">
+                Tổng tạm tính nhiều khay: {format_money(st.session_state.multi_total)}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        col_multi_pay, col_multi_clear = st.columns(2)
+
+        with col_multi_pay:
+            if st.button("💳 Thanh toán tất cả khay đã lưu", use_container_width=True):
+                st.session_state.checkout_rows = st.session_state.multi_order_rows
+                st.session_state.checkout_total = st.session_state.multi_total
+                st.session_state.payment_step = "checkout"
+                st.rerun()
+
+        with col_multi_clear:
+            if st.button("🗑 Xóa hóa đơn nhiều khay", use_container_width=True):
+                st.session_state.multi_order_rows = []
+                st.session_state.multi_total = 0
+                st.session_state.tray_count = 0
+                clear_current_scan()
+                st.rerun()
+
     # =========================
     # BƯỚC THANH TOÁN
     # =========================
@@ -726,7 +820,6 @@ elif st.session_state.page == "payment":
             with st.expander("Nội dung QR"):
                 st.code(qr_content)
 
-            st.info("QR hiện tại là QR nội dung thanh toán mẫu. Nếu anh muốn QR chuyển khoản ngân hàng thật, gửi em số tài khoản + ngân hàng + tên chủ tài khoản để em gắn VietQR.")
 
         col_pay_back, col_finish = st.columns(2)
 
@@ -886,11 +979,35 @@ elif st.session_state.page == "payment":
             unsafe_allow_html=True
         )
 
-        if st.button("💳 Thanh toán", use_container_width=True):
-            st.session_state.checkout_rows = bill_rows
-            st.session_state.checkout_total = total
-            st.session_state.payment_step = "checkout"
-            st.rerun()
+        if tray_pay_mode == "1 khay duy nhất":
+            if st.button("💳 Thanh toán khay này", use_container_width=True):
+                st.session_state.checkout_rows = bill_rows
+                st.session_state.checkout_total = total
+                st.session_state.payment_step = "checkout"
+                st.rerun()
+        else:
+            current_tray_number = st.session_state.tray_count + 1
+            current_rows_with_tray = add_tray_column(bill_rows, current_tray_number)
+
+            col_add_tray, col_pay_all = st.columns(2)
+
+            with col_add_tray:
+                if st.button("➕ Lưu khay này / chụp khay tiếp theo", use_container_width=True):
+                    st.session_state.multi_order_rows.extend(current_rows_with_tray)
+                    st.session_state.multi_total += total
+                    st.session_state.tray_count = current_tray_number
+                    clear_current_scan()
+                    st.success(f"Đã lưu khay {current_tray_number}. Anh có thể chụp khay tiếp theo.")
+                    st.rerun()
+
+            with col_pay_all:
+                if st.button("💳 Thanh toán khay này + các khay đã lưu", use_container_width=True):
+                    all_rows = st.session_state.multi_order_rows + current_rows_with_tray
+                    all_total = st.session_state.multi_total + total
+                    st.session_state.checkout_rows = all_rows
+                    st.session_state.checkout_total = all_total
+                    st.session_state.payment_step = "checkout"
+                    st.rerun()
 
 
 # =========================
@@ -1006,5 +1123,4 @@ elif st.session_state.page == "menu":
     df_menu = pd.DataFrame(menu_data)
     st.dataframe(df_menu, use_container_width=True, hide_index=True)
 
-    st.info("Anh có thể đổi giá món trong biến PRICE_TABLE ở đầu file app.py.")
 
