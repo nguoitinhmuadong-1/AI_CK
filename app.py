@@ -138,6 +138,71 @@ st.markdown(
         background-color: #ea580c;
         color: white;
     }
+
+    .input-card {
+        background: rgba(255,255,255,0.92);
+        border: 2px solid #fed7aa;
+        border-radius: 22px;
+        padding: 20px;
+        margin: 12px 0 18px 0;
+        color: #1f2937;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    }
+
+    .input-card h3 {
+        color: #c2410c;
+        margin-bottom: 8px;
+    }
+
+    .camera-guide {
+        background: #fff7ed;
+        border-left: 6px solid #f97316;
+        border-radius: 16px;
+        padding: 14px 18px;
+        color: #7c2d12;
+        font-weight: 600;
+        margin-bottom: 14px;
+    }
+
+    div[data-testid="stCameraInput"] {
+        background: white;
+        border: 2px dashed #fb923c;
+        border-radius: 22px;
+        padding: 18px;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    }
+
+    div[data-testid="stCameraInput"] video {
+        border-radius: 18px;
+        border: 4px solid #fdba74;
+    }
+
+    div[data-testid="stCameraInput"] button {
+        min-height: 62px !important;
+        width: 100% !important;
+        border-radius: 18px !important;
+        background: linear-gradient(135deg, #f97316, #dc2626) !important;
+        color: white !important;
+        font-size: 19px !important;
+        font-weight: 900 !important;
+        margin-top: 10px !important;
+    }
+
+    div[data-testid="stFileUploader"] {
+        background: white;
+        border: 2px dashed #fb923c;
+        border-radius: 22px;
+        padding: 18px;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    }
+
+    div[data-testid="stFileUploader"] button {
+        min-height: 52px !important;
+        border-radius: 16px !important;
+        background: #f97316 !important;
+        color: white !important;
+        font-weight: 800 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -514,16 +579,52 @@ elif st.session_state.page == "payment":
 
     st.markdown("### Chọn ảnh khay cơm")
 
-    col_upload, col_camera = st.columns(2)
+    st.markdown(
+        """
+        <div class="input-card">
+            <h3>📸 Chụp hoặc tải ảnh khay cơm</h3>
+            <p>
+            Anh có thể chọn ảnh có sẵn hoặc chụp trực tiếp. Khi chụp, đặt khay nằm giữa khung hình,
+            chụp thẳng từ trên xuống để OpenCV cắt 5 ô chính xác hơn.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    with col_upload:
+    uploaded_file = None
+    camera_file = None
+
+    tab_upload, tab_camera = st.tabs(["📁 Tải ảnh lên", "📸 Chụp trực tiếp"])
+
+    with tab_upload:
+        st.markdown(
+            """
+            <div class="camera-guide">
+            Cách dễ dùng nhất trên điện thoại: bấm nút tải ảnh rồi chọn Camera hoặc Thư viện ảnh.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
         uploaded_file = st.file_uploader(
-            "Tải ảnh lên",
-            type=["jpg", "jpeg", "png"]
+            "Chọn ảnh khay cơm",
+            type=["jpg", "jpeg", "png"],
+            label_visibility="collapsed"
         )
 
-    with col_camera:
-        camera_file = st.camera_input("Chụp ảnh trực tiếp")
+    with tab_camera:
+        st.markdown(
+            """
+            <div class="camera-guide">
+            Bấm nút chụp bên dưới. Nút chụp đã được phóng to để dễ thao tác hơn.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        camera_file = st.camera_input(
+            "Đưa khay vào giữa khung hình rồi chụp",
+            key="camera_input_big"
+        )
 
     input_file = uploaded_file if uploaded_file is not None else camera_file
 
