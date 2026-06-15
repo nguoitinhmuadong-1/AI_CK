@@ -5,7 +5,14 @@ import cv2
 import pandas as pd
 from PIL import Image
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+from urllib.parse import quote
 import os
+
+try:
+    import qrcode
+    QR_AVAILABLE = True
+except Exception:
+    QR_AVAILABLE = False
 
 
 # =========================
@@ -203,6 +210,43 @@ st.markdown(
         color: white !important;
         font-weight: 800 !important;
     }
+
+
+    .payment-card {
+        background: white;
+        border: 2px solid #fed7aa;
+        border-radius: 22px;
+        padding: 22px;
+        margin-top: 18px;
+        color: #1f2937;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    }
+
+    .payment-card h3 {
+        color: #c2410c;
+        margin-top: 0;
+    }
+
+    .qr-card {
+        background: #fff7ed;
+        border: 2px dashed #fb923c;
+        border-radius: 22px;
+        padding: 20px;
+        text-align: center;
+        color: #7c2d12;
+        margin-top: 12px;
+    }
+
+    .review-card {
+        background: white;
+        border: 2px solid #fed7aa;
+        border-radius: 22px;
+        padding: 22px;
+        margin: 14px 0;
+        color: #1f2937;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    }
+
     </style>
     """,
     unsafe_allow_html=True
@@ -227,6 +271,33 @@ def load_food_model():
 # =========================
 def format_money(value):
     return f"{value:,.0f} đ".replace(",", ".")
+
+
+def build_order_text(order_rows, total):
+    lines = ["AD VietFood Vision", f"Tong tien: {format_money(total)}", "Chi tiet mon:"]
+
+    for row in order_rows:
+        lines.append(f"- {row['Tên món']}: {row['Giá']}")
+
+    return "\n".join(lines)
+
+
+def create_payment_qr(order_rows, total):
+    qr_content = build_order_text(order_rows, total)
+
+    if QR_AVAILABLE:
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=8,
+            border=4
+        )
+        qr.add_data(qr_content)
+        qr.make(fit=True)
+        qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+        return qr_img, qr_content
+
+    return None, qr_content
 
 
 def preprocess_crop(crop_rgb):
@@ -468,7 +539,7 @@ def draw_boxes(image_rgb, detections, tray_box=None):
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
-if st.session_state.page not in ["home", "payment", "menu"]:
+if st.session_state.page not in ["home", "payment", "menu", "review"]:
     st.session_state.page = "home"
 
 if "image_rgb" not in st.session_state:
@@ -486,6 +557,15 @@ if "found_tray" not in st.session_state:
 if "result_id" not in st.session_state:
     st.session_state.result_id = 0
 
+if "payment_step" not in st.session_state:
+    st.session_state.payment_step = "scan"
+
+if "checkout_rows" not in st.session_state:
+    st.session_state.checkout_rows = []
+
+if "checkout_total" not in st.session_state:
+    st.session_state.checkout_total = 0
+
 
 def go_page(page_name):
     st.session_state.page = page_name
@@ -497,6 +577,9 @@ def clear_result():
     st.session_state.detections = []
     st.session_state.tray_box = None
     st.session_state.found_tray = True
+    st.session_state.payment_step = "scan"
+    st.session_state.checkout_rows = []
+    st.session_state.checkout_total = 0
 
 
 # =========================
@@ -574,6 +657,90 @@ elif st.session_state.page == "payment":
         if st.button("🧹 Xóa kết quả"):
             clear_result()
             st.rerun()
+
+    # =========================
+    # BƯỚC THANH TOÁN
+    # =========================
+    if st.session_state.payment_step == "checkout":
+        st.markdown("### 💳 Thanh toán")
+
+        order_rows = st.session_state.checkout_rows
+        total = st.session_state.checkout_total
+
+        if len(order_rows) == 0:
+            st.warning("Chưa có hóa đơn để thanh toán.")
+            if st.button("⬅ Quay lại nhận diện"):
+                clear_result()
+                st.rerun()
+            st.stop()
+
+        st.markdown(
+            """
+            <div class="payment-card">
+                <h3>Chi tiết hóa đơn</h3>
+                <p>Kiểm tra danh sách món và chọn hình thức thanh toán.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        df_checkout = pd.DataFrame(order_rows)
+        st.dataframe(df_checkout, use_container_width=True, hide_index=True)
+
+        st.markdown(
+            f"""
+            <div class="total-box">
+                Tổng cần thanh toán: {format_money(total)}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        payment_method = st.radio(
+            "Chọn phương thức thanh toán:",
+            ["Tiền mặt", "Chuyển khoản"],
+            horizontal=True
+        )
+
+        if payment_method == "Tiền mặt":
+            st.success("Khách thanh toán bằng tiền mặt. Sau khi thu tiền, bấm Hoàn tất thanh toán.")
+        else:
+            st.markdown(
+                """
+                <div class="qr-card">
+                    <h3>QR chuyển khoản</h3>
+                    <p>Khách quét mã QR bên dưới để thanh toán.</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            qr_img, qr_content = create_payment_qr(order_rows, total)
+
+            if qr_img is not None:
+                st.image(qr_img, caption="QR thanh toán", width=280)
+            else:
+                qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=" + quote(qr_content)
+                st.image(qr_url, caption="QR thanh toán", width=280)
+
+            with st.expander("Nội dung QR"):
+                st.code(qr_content)
+
+            st.info("QR hiện tại là QR nội dung thanh toán mẫu. Nếu anh muốn QR chuyển khoản ngân hàng thật, gửi em số tài khoản + ngân hàng + tên chủ tài khoản để em gắn VietQR.")
+
+        col_pay_back, col_finish = st.columns(2)
+
+        with col_pay_back:
+            if st.button("⬅ Quay lại hóa đơn", use_container_width=True):
+                st.session_state.payment_step = "scan"
+                st.rerun()
+
+        with col_finish:
+            if st.button("✅ Hoàn tất thanh toán", use_container_width=True):
+                st.session_state.page = "review"
+                st.rerun()
+
+        st.stop()
 
     food_model = load_food_model()
 
@@ -719,6 +886,71 @@ elif st.session_state.page == "payment":
             unsafe_allow_html=True
         )
 
+        if st.button("💳 Thanh toán", use_container_width=True):
+            st.session_state.checkout_rows = bill_rows
+            st.session_state.checkout_total = total
+            st.session_state.payment_step = "checkout"
+            st.rerun()
+
+
+# =========================
+# PHÂN HỆ 3: ĐÁNH GIÁ MÓN ĂN
+# =========================
+elif st.session_state.page == "review":
+    st.markdown('<div class="main-title">⭐ Đánh giá món ăn</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sub-title">Anh có thể đánh giá số sao và để lại bình luận sau khi thanh toán</div>',
+        unsafe_allow_html=True
+    )
+
+    order_rows = st.session_state.checkout_rows
+
+    if len(order_rows) == 0:
+        st.info("Chưa có món ăn để đánh giá.")
+    else:
+        st.markdown(
+            """
+            <div class="review-card">
+                <h3 style="color:#c2410c; margin-top:0;">Cảm nhận của khách hàng</h3>
+                <p>Chọn số sao cho từng món và nhập bình luận nếu có.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        review_data = []
+
+        for i, row in enumerate(order_rows):
+            st.markdown(f"#### {i + 1}. {row['Tên món']} - {row['Giá']}")
+            rating = st.slider(
+                f"Số sao cho {row['Tên món']}",
+                min_value=1,
+                max_value=5,
+                value=5,
+                step=1,
+                key=f"rating_{i}"
+            )
+            review_data.append({"Tên món": row["Tên món"], "Số sao": rating})
+
+        comment = st.text_area(
+            "Bình luận chung về bữa ăn:",
+            placeholder="Ví dụ: món ăn ngon, cơm hơi khô, canh vừa miệng..."
+        )
+
+    col_done, col_skip = st.columns(2)
+
+    with col_done:
+        if st.button("✅ Hoàn thành", use_container_width=True):
+            clear_result()
+            st.session_state.page = "payment"
+            st.rerun()
+
+    with col_skip:
+        if st.button("⏭ Bỏ qua", use_container_width=True):
+            clear_result()
+            st.session_state.page = "payment"
+            st.rerun()
+
 
 # =========================
 # PHÂN HỆ 2: THỰC ĐƠN
@@ -745,5 +977,5 @@ elif st.session_state.page == "menu":
     df_menu = pd.DataFrame(menu_data)
     st.dataframe(df_menu, use_container_width=True, hide_index=True)
 
-    st.info("Anh có thể đổi giá món trong biến PRICE_TABLE ở đầu file app.py.")
+
 
