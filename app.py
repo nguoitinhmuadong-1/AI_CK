@@ -60,6 +60,15 @@ PRICE_TABLE = {
     "trung_chien": 25000
 }
 
+# =========================
+# CẤU HÌNH TÍCH ĐIỂM THÀNH VIÊN
+# =========================
+MEMBER_POINTS_FILE = "member_points.csv"
+POINT_MONEY_RATE = 10000  # 10.000đ = 1 điểm
+POINT_REDEEM_VALUE = 1000  # 1 điểm đổi được 1.000đ
+POINT_MAX_DISCOUNT_RATE = 0.5  # Điểm chỉ được giảm tối đa 50% hóa đơn
+
+
 
 # =========================
 # SETUP STREAMLIT
@@ -227,6 +236,32 @@ st.markdown(
         margin-top: 0;
     }
 
+    .member-card {
+        background: linear-gradient(135deg, #ffffff, #fff7ed);
+        border: 2px solid #fdba74;
+        border-radius: 22px;
+        padding: 22px;
+        margin-top: 18px;
+        color: #1f2937;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    }
+
+    .member-card h3 {
+        color: #c2410c;
+        margin-top: 0;
+    }
+
+    .point-box {
+        background: linear-gradient(135deg, #fef3c7, #fed7aa);
+        border: 2px solid #fb923c;
+        border-radius: 18px;
+        padding: 16px;
+        text-align: center;
+        color: #7c2d12;
+        font-weight: 900;
+        font-size: 20px;
+    }
+
     .qr-card {
         background: #fff7ed;
         border: 2px dashed #fb923c;
@@ -319,6 +354,38 @@ st.markdown(
         box-shadow: 0 5px 16px rgba(249, 115, 22, 0.35);
     }
 
+
+    /* Làm nổi phần tổng tiền / giảm điểm / còn phải trả */
+    [data-testid="stMetric"] {
+        background: #fff7ed !important;
+        border: 2px solid #fb923c !important;
+        border-radius: 18px !important;
+        padding: 18px 20px !important;
+        box-shadow: 0 4px 16px rgba(249, 115, 22, 0.18) !important;
+    }
+
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricLabel"] p,
+    [data-testid="stMetricLabel"] div {
+        color: #7c2d12 !important;
+        font-weight: 900 !important;
+        font-size: 16px !important;
+    }
+
+    [data-testid="stMetricValue"],
+    [data-testid="stMetricValue"] div {
+        color: #9a3412 !important;
+        font-weight: 950 !important;
+        font-size: 34px !important;
+    }
+
+    [data-testid="stMetricDelta"],
+    [data-testid="stMetricDelta"] div,
+    [data-testid="stMetricDelta"] svg {
+        color: #166534 !important;
+        fill: #166534 !important;
+    }
+
     </style>
     """,
     unsafe_allow_html=True
@@ -343,6 +410,98 @@ def load_food_model():
 # =========================
 def format_money(value):
     return f"{value:,.0f} đ".replace(",", ".")
+
+
+def normalize_member_id(value):
+    return "".join(ch for ch in str(value).strip() if ch.isalnum())
+
+
+def load_member_points():
+    if not os.path.exists(MEMBER_POINTS_FILE):
+        return {}
+
+    try:
+        df = pd.read_csv(MEMBER_POINTS_FILE, dtype={"member_id": str, "member_name": str})
+    except Exception:
+        return {}
+
+    points_data = {}
+    for _, row in df.iterrows():
+        member_id = normalize_member_id(row.get("member_id", ""))
+        if not member_id:
+            continue
+
+        try:
+            points = int(row.get("points", 0))
+        except Exception:
+            points = 0
+
+        member_name = str(row.get("member_name", "")).strip()
+        points_data[member_id] = {
+            "member_name": member_name,
+            "points": points
+        }
+
+    return points_data
+
+
+def save_member_points(points_data):
+    rows = []
+    for member_id, info in points_data.items():
+        rows.append({
+            "member_id": member_id,
+            "member_name": info.get("member_name", ""),
+            "points": int(info.get("points", 0))
+        })
+
+    df = pd.DataFrame(rows, columns=["member_id", "member_name", "points"])
+    df.to_csv(MEMBER_POINTS_FILE, index=False, encoding="utf-8-sig")
+
+
+def get_member_info(member_id):
+    member_id = normalize_member_id(member_id)
+    points_data = load_member_points()
+
+    if member_id in points_data:
+        return points_data[member_id]
+
+    return {"member_name": "", "points": 0}
+
+
+def update_member_points_after_payment(member_id, member_name, payable_money, used_points=0):
+    member_id = normalize_member_id(member_id)
+    member_name = str(member_name).strip()
+
+    if not member_id:
+        return None
+
+    points_data = load_member_points()
+    old_info = points_data.get(member_id, {"member_name": member_name, "points": 0})
+    old_points = int(old_info.get("points", 0))
+
+    if not member_name:
+        member_name = old_info.get("member_name", "")
+
+    used_points = int(max(0, min(used_points, old_points)))
+    discount_money = used_points * POINT_REDEEM_VALUE
+    earned_points = int(payable_money // POINT_MONEY_RATE)
+    new_points = old_points - used_points + earned_points
+
+    points_data[member_id] = {
+        "member_name": member_name,
+        "points": new_points
+    }
+    save_member_points(points_data)
+
+    return {
+        "member_id": member_id,
+        "member_name": member_name,
+        "old_points": old_points,
+        "used_points": used_points,
+        "discount_money": discount_money,
+        "earned_points": earned_points,
+        "new_points": new_points
+    }
 
 
 def build_order_text(order_rows, total):
@@ -611,7 +770,7 @@ def draw_boxes(image_rgb, detections, tray_box=None):
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
-if st.session_state.page not in ["home", "payment", "menu", "review"]:
+if st.session_state.page not in ["home", "payment", "menu"]:
     st.session_state.page = "home"
 
 if "image_rgb" not in st.session_state:
@@ -648,6 +807,19 @@ if "tray_count" not in st.session_state:
     st.session_state.tray_count = 0
 
 
+if "member_id" not in st.session_state:
+    st.session_state.member_id = ""
+
+if "member_name" not in st.session_state:
+    st.session_state.member_name = ""
+
+if "last_points_info" not in st.session_state:
+    st.session_state.last_points_info = None
+
+if "payment_success_message" not in st.session_state:
+    st.session_state.payment_success_message = ""
+
+
 def go_page(page_name):
     st.session_state.page = page_name
     st.rerun()
@@ -668,6 +840,9 @@ def clear_result():
     st.session_state.multi_order_rows = []
     st.session_state.multi_total = 0
     st.session_state.tray_count = 0
+    st.session_state.member_id = ""
+    st.session_state.member_name = ""
+    st.session_state.last_points_info = None
 
 
 def add_tray_column(rows, tray_number):
@@ -745,6 +920,10 @@ elif st.session_state.page == "payment":
         unsafe_allow_html=True
     )
 
+    if st.session_state.payment_success_message:
+        st.success(st.session_state.payment_success_message)
+        st.session_state.payment_success_message = ""
+
     col_back, col_clear = st.columns(2)
 
     with col_back:
@@ -761,7 +940,7 @@ elif st.session_state.page == "payment":
         """
         <div class="mode-card">
             <div class="mode-title">💳 Chọn kiểu thanh toán</div>
-            <div class="mode-desc">Anh chọn thanh toán cho 1 khay hiện tại hoặc gom nhiều khay rồi thanh toán một lần.</div>
+            <div class="mode-desc">Bạn chọn thanh toán cho 1 khay hiện tại hoặc gom nhiều khay rồi thanh toán một lần.</div>
         </div>
         """,
         unsafe_allow_html=True
@@ -781,7 +960,7 @@ elif st.session_state.page == "payment":
             f"""
             <div class="summary-card">
                 <h3>Đã lưu {st.session_state.tray_count} khay</h3>
-                <p>Anh có thể chụp thêm khay khác hoặc thanh toán tất cả các khay đã lưu.</p>
+                <p>Bạn có thể chụp thêm khay khác hoặc thanh toán tất cả các khay đã lưu.</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -848,14 +1027,108 @@ elif st.session_state.page == "payment":
         df_checkout = pd.DataFrame(order_rows)
         st.dataframe(df_checkout, use_container_width=True, hide_index=True)
 
+        original_total = int(total)
+
         st.markdown(
             f"""
             <div class="total-box">
-                Tổng cần thanh toán: {format_money(total)}
+                Tổng hóa đơn: {format_money(original_total)}
             </div>
             """,
             unsafe_allow_html=True
         )
+
+        st.markdown(
+            f"""
+            <div class="member-card">
+                <h3>🎁 Tích điểm & đổi điểm thành viên</h3>
+                <p>Nhập số điện thoại hoặc mã thành viên để cộng điểm và dùng điểm giảm tiền.</p>
+                <p>
+                    <b>Tích điểm:</b> {format_money(POINT_MONEY_RATE)} = 1 điểm<br>
+                    <b>Đổi điểm:</b> 1 điểm = {format_money(POINT_REDEEM_VALUE)} giảm trực tiếp vào hóa đơn
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        col_member_id, col_member_name = st.columns(2)
+
+        with col_member_id:
+            member_id = st.text_input(
+                "Số điện thoại / Mã thành viên",
+                value=st.session_state.member_id,
+                placeholder="Ví dụ: 0912345678",
+                key="checkout_member_id"
+            )
+
+        with col_member_name:
+            member_name = st.text_input(
+                "Tên khách hàng",
+                value=st.session_state.member_name,
+                placeholder="Ví dụ: Nguyễn Văn A",
+                key="checkout_member_name"
+            )
+
+        st.session_state.member_id = member_id
+        st.session_state.member_name = member_name
+
+        member_id_clean = normalize_member_id(member_id)
+        used_points = 0
+        discount_money = 0
+        payable_total = original_total
+
+        if member_id_clean:
+            member_info = get_member_info(member_id_clean)
+            current_points = int(member_info.get("points", 0))
+            max_discount_money = int(original_total * POINT_MAX_DISCOUNT_RATE)
+            max_points_by_bill = max_discount_money // POINT_REDEEM_VALUE
+            max_redeem_points = int(max(0, min(current_points, max_points_by_bill)))
+
+            if max_redeem_points > 0:
+                used_points = st.number_input(
+                    "Dùng điểm để giảm tiền",
+                    min_value=0,
+                    max_value=max_redeem_points,
+                    value=0,
+                    step=1,
+                    help="1 điểm = 1.000đ. Mỗi hóa đơn được giảm tối đa 50% bằng điểm.",
+                    key="use_member_points"
+                )
+            else:
+                st.caption("Thành viên chưa đủ điểm để đổi hoặc hóa đơn quá thấp để áp dụng điểm.")
+
+            discount_money = int(used_points) * POINT_REDEEM_VALUE
+            payable_total = max(0, original_total - discount_money)
+            earned_preview = int(payable_total // POINT_MONEY_RATE)
+            after_points = current_points - int(used_points) + earned_preview
+
+            st.markdown(
+                f"""
+                <div class="point-box">
+                    Điểm hiện có: {current_points} ⭐ &nbsp; | &nbsp;
+                    Dùng điểm: -{int(used_points)} ⭐ &nbsp; | &nbsp;
+                    Giảm: {format_money(discount_money)}<br>
+                    Điểm cộng thêm: +{earned_preview} ⭐ &nbsp; | &nbsp;
+                    Sau thanh toán: {after_points} ⭐
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            earned_preview = 0
+            st.info("Không nhập mã thành viên thì vẫn thanh toán bình thường, nhưng đơn này sẽ không được cộng điểm hoặc đổi điểm.")
+
+        if discount_money > 0:
+            col_old_total, col_discount, col_payable = st.columns(3)
+            with col_old_total:
+                st.metric("Tổng hóa đơn", format_money(original_total))
+            with col_discount:
+                st.metric("Giảm bằng điểm", f"- {format_money(discount_money)}")
+            with col_payable:
+                st.metric("Còn phải trả", format_money(payable_total))
+        else:
+            payable_total = original_total
 
         payment_method = st.radio(
             "Chọn phương thức thanh toán:",
@@ -864,7 +1137,7 @@ elif st.session_state.page == "payment":
         )
 
         if payment_method == "Tiền mặt":
-            st.success("Khách thanh toán bằng tiền mặt. Sau khi thu tiền, bấm Hoàn tất thanh toán.")
+            st.success(f"Khách thanh toán bằng tiền mặt: {format_money(payable_total)}. Sau khi thu tiền, bấm Hoàn tất thanh toán.")
         else:
             st.markdown(
                 """
@@ -876,7 +1149,7 @@ elif st.session_state.page == "payment":
                 unsafe_allow_html=True
             )
 
-            qr_img, qr_content = create_payment_qr(order_rows, total)
+            qr_img, qr_content = create_payment_qr(order_rows, payable_total)
 
             if qr_img is not None:
                 st.image(qr_img, caption="QR thanh toán", width=280)
@@ -897,7 +1170,28 @@ elif st.session_state.page == "payment":
 
         with col_finish:
             if st.button("✅ Hoàn tất thanh toán", use_container_width=True):
-                st.session_state.page = "review"
+                points_info = update_member_points_after_payment(
+                    st.session_state.member_id,
+                    st.session_state.member_name,
+                    payable_total,
+                    used_points=used_points
+                )
+
+                success_message = f"Thanh toán hoàn tất. Số tiền đã thanh toán: {format_money(payable_total)}."
+
+                if points_info is not None:
+                    extra_message = f" Đã cộng {points_info['earned_points']} điểm."
+                    if int(points_info.get("used_points", 0)) > 0:
+                        extra_message = (
+                            f" Đã dùng {points_info['used_points']} điểm để giảm "
+                            f"{format_money(points_info['discount_money'])}. "
+                            f"Đã cộng {points_info['earned_points']} điểm."
+                        )
+                    success_message += extra_message
+
+                clear_result()
+                st.session_state.payment_success_message = success_message
+                st.session_state.page = "payment"
                 st.rerun()
 
         st.stop()
@@ -911,7 +1205,7 @@ elif st.session_state.page == "payment":
         <div class="input-card">
             <h3>📸 Chụp hoặc tải ảnh khay cơm</h3>
             <p>
-            Anh có thể chọn ảnh có sẵn hoặc chụp trực tiếp. Khi chụp, đặt khay nằm giữa khung hình,
+            Bạn có thể chọn ảnh có sẵn hoặc chụp trực tiếp. Khi chụp, đặt khay nằm giữa khung hình,
             chụp thẳng từ trên xuống để OpenCV cắt 5 ô chính xác hơn.
             </p>
         </div>
@@ -990,7 +1284,7 @@ elif st.session_state.page == "payment":
         if st.session_state.found_tray is False and st.session_state.tray_box is not None:
             st.warning(
                 "OpenCV chưa tìm được khay rõ ràng nên app dùng vùng khay mặc định. "
-                "Nếu box bị lệch, anh nên chụp ảnh thẳng từ trên xuống và để khay nằm giữa ảnh."
+                "Nếu box bị lệch, bạn nên chụp ảnh thẳng từ trên xuống và để khay nằm giữa ảnh."
             )
 
         st.markdown("### Hóa đơn món ăn")
@@ -1075,94 +1369,6 @@ elif st.session_state.page == "payment":
                     st.session_state.checkout_total = all_total
                     st.session_state.payment_step = "checkout"
                     st.rerun()
-
-
-# =========================
-# PHÂN HỆ 3: ĐÁNH GIÁ MÓN ĂN
-# =========================
-elif st.session_state.page == "review":
-    st.markdown('<div class="main-title">⭐ Đánh giá món ăn</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="sub-title">Anh có thể đánh giá số sao và để lại bình luận sau khi thanh toán</div>',
-        unsafe_allow_html=True
-    )
-
-    order_rows = st.session_state.checkout_rows
-
-    if len(order_rows) == 0:
-        st.info("Chưa có món ăn để đánh giá.")
-    else:
-        st.markdown(
-            """
-            <div class="review-card">
-                <h3 style="color:#c2410c; margin-top:0;">Cảm nhận của khách hàng</h3>
-                <p>Chọn số sao cho từng món và nhập bình luận nếu có.</p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        review_data = []
-
-        for i, row in enumerate(order_rows):
-            st.markdown(f"#### {i + 1}. {row['Tên món']} - {row['Giá']}")
-            st.caption("Bấm trực tiếp vào số sao để đánh giá")
-
-            # st.feedback('stars') hiển thị dạng sao có thể bấm trực tiếp.
-            # Giá trị trả về là 0-4, nên cộng thêm 1 để thành 1-5 sao.
-            try:
-                selected_star = st.feedback(
-                    "stars",
-                    key=f"rating_star_{st.session_state.result_id}_{i}"
-                )
-
-                if selected_star is None:
-                    rating = 0
-                    st.write("Chưa chọn sao")
-                else:
-                    rating = selected_star + 1
-                    st.write(f"Đã chọn: {rating}/5 sao")
-
-            except Exception:
-                # Dự phòng nếu bản Streamlit quá cũ chưa hỗ trợ st.feedback
-                if f"rating_fallback_{i}" not in st.session_state:
-                    st.session_state[f"rating_fallback_{i}"] = 5
-
-                star_cols = st.columns(5)
-                for star in range(1, 6):
-                    with star_cols[star - 1]:
-                        star_symbol = "★" if star <= st.session_state[f"rating_fallback_{i}"] else "☆"
-                        if st.button(
-                            star_symbol,
-                            key=f"star_btn_{st.session_state.result_id}_{i}_{star}",
-                            use_container_width=True
-                        ):
-                            st.session_state[f"rating_fallback_{i}"] = star
-                            st.rerun()
-
-                rating = st.session_state[f"rating_fallback_{i}"]
-                st.write(f"Đã chọn: {rating}/5 sao")
-
-            review_data.append({"Tên món": row["Tên món"], "Số sao": rating})
-
-        comment = st.text_area(
-            "Bình luận chung về bữa ăn:",
-            placeholder="Ví dụ: món ăn ngon, cơm hơi khô, canh vừa miệng..."
-        )
-
-    col_done, col_skip = st.columns(2)
-
-    with col_done:
-        if st.button("✅ Hoàn thành", use_container_width=True):
-            clear_result()
-            st.session_state.page = "payment"
-            st.rerun()
-
-    with col_skip:
-        if st.button("⏭ Bỏ qua", use_container_width=True):
-            clear_result()
-            st.session_state.page = "payment"
-            st.rerun()
 
 
 # =========================
