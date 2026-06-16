@@ -323,12 +323,26 @@ st.markdown(
     }
 
     div[data-testid="stRadio"] {
-        background: rgba(255, 255, 255, 0.92);
+        background: rgba(255, 255, 255, 0.96);
         border: 2px solid #fdba74;
         border-radius: 20px;
         padding: 18px 22px;
         margin-bottom: 18px;
         box-shadow: 0 5px 18px rgba(0,0,0,0.08);
+        width: 100% !important;
+        display: block !important;
+        box-sizing: border-box !important;
+    }
+
+    div[data-testid="stRadio"] > div {
+        width: 100% !important;
+    }
+
+    div[data-testid="stRadio"] [role="radiogroup"] {
+        width: 100% !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 14px !important;
     }
 
     div[data-testid="stRadio"] label {
@@ -940,7 +954,7 @@ elif st.session_state.page == "payment":
         """
         <div class="mode-card">
             <div class="mode-title">💳 Chọn kiểu thanh toán</div>
-            <div class="mode-desc">Bạn chọn thanh toán cho 1 khay hiện tại hoặc gom nhiều khay rồi thanh toán một lần.</div>
+            <div class="mode-desc">Anh chọn thanh toán cho 1 khay hiện tại hoặc gom nhiều khay rồi thanh toán một lần.</div>
         </div>
         """,
         unsafe_allow_html=True
@@ -960,7 +974,7 @@ elif st.session_state.page == "payment":
             f"""
             <div class="summary-card">
                 <h3>Đã lưu {st.session_state.tray_count} khay</h3>
-                <p>Bạn có thể chụp thêm khay khác hoặc thanh toán tất cả các khay đã lưu.</p>
+                <p>Anh có thể chụp thêm khay khác hoặc thanh toán tất cả các khay đã lưu.</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -1130,10 +1144,21 @@ elif st.session_state.page == "payment":
         else:
             payable_total = original_total
 
+        st.markdown(
+            """
+            <div class="payment-card">
+                <h3>💵 Chọn phương thức thanh toán</h3>
+                <p>Anh chọn tiền mặt hoặc chuyển khoản cho hóa đơn hiện tại.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
         payment_method = st.radio(
             "Chọn phương thức thanh toán:",
             ["Tiền mặt", "Chuyển khoản"],
-            horizontal=True
+            horizontal=True,
+            label_visibility="collapsed"
         )
 
         if payment_method == "Tiền mặt":
@@ -1205,7 +1230,7 @@ elif st.session_state.page == "payment":
         <div class="input-card">
             <h3>📸 Chụp hoặc tải ảnh khay cơm</h3>
             <p>
-            Bạn có thể chọn ảnh có sẵn hoặc chụp trực tiếp. Khi chụp, đặt khay nằm giữa khung hình,
+            Anh có thể chọn ảnh có sẵn hoặc chụp trực tiếp. Khi chụp, đặt khay nằm giữa khung hình,
             chụp thẳng từ trên xuống để OpenCV cắt 5 ô chính xác hơn.
             </p>
         </div>
@@ -1284,7 +1309,7 @@ elif st.session_state.page == "payment":
         if st.session_state.found_tray is False and st.session_state.tray_box is not None:
             st.warning(
                 "OpenCV chưa tìm được khay rõ ràng nên app dùng vùng khay mặc định. "
-                "Nếu box bị lệch, bạn nên chụp ảnh thẳng từ trên xuống và để khay nằm giữa ảnh."
+                "Nếu box bị lệch, anh nên chụp ảnh thẳng từ trên xuống và để khay nằm giữa ảnh."
             )
 
         st.markdown("### Hóa đơn món ăn")
