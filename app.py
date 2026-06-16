@@ -1524,8 +1524,6 @@ elif st.session_state.page == "payment":
                 qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=" + quote(qr_content)
                 st.image(qr_url, caption="QR thanh toán", width=280)
 
-            with st.expander("Nội dung QR"):
-                st.code(qr_content)
 
 
         col_pay_back, col_finish = st.columns(2)
