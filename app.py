@@ -456,39 +456,96 @@ st.markdown(
     }
 
 
-    /* ===== CUSTOM FULL WIDTH OPTION CARDS ===== */
-    .full-option-card {
-        width: 100%;
-        border: 2px solid #fdba74;
-        border-radius: 20px;
-        padding: 18px 22px;
-        background: rgba(255, 255, 255, 0.92);
-        box-shadow: 0 5px 18px rgba(0,0,0,0.08);
-        box-sizing: border-box;
-        margin-bottom: 18px;
-    }
-
-    .option-status {
-        background: linear-gradient(135deg, #fed7aa, #fdba74);
-        border: 2px solid #ea580c;
-        border-radius: 18px;
-        padding: 15px 18px;
-        color: #7c2d12;
-        font-size: 18px;
-        font-weight: 900;
-        text-align: center;
-        box-shadow: 0 5px 16px rgba(249, 115, 22, 0.22);
-        margin-bottom: 12px;
-    }
-
-    .full-option-card div.stButton > button {
+    /* ===== RADIO GIỮ GIAO DIỆN CŨ NHƯNG ÉP FULL WIDTH ===== */
+    div[data-testid="stElementContainer"]:has(div.stRadio),
+    div[data-testid="stElementContainer"]:has(div[data-testid="stRadio"]),
+    div[data-testid="stVerticalBlock"] div:has(> div.stRadio),
+    div[data-testid="stVerticalBlock"] div:has(> div[data-testid="stRadio"]) {
         width: 100% !important;
-        min-height: 64px !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        display: block !important;
+        box-sizing: border-box !important;
+    }
+
+    div.stRadio,
+    div[data-testid="stRadio"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        display: block !important;
+        box-sizing: border-box !important;
+        background: rgba(255, 255, 255, 0.92) !important;
+        border: 2px solid #fdba74 !important;
+        border-radius: 20px !important;
+        padding: 22px 28px !important;
+        margin-bottom: 18px !important;
+        box-shadow: 0 5px 18px rgba(0,0,0,0.08) !important;
+    }
+
+    div.stRadio > div,
+    div[data-testid="stRadio"] > div {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    div.stRadio div[role="radiogroup"],
+    div[data-testid="stRadio"] div[role="radiogroup"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 24px !important;
+        align-items: stretch !important;
+        box-sizing: border-box !important;
+    }
+
+    div.stRadio div[role="radiogroup"] label,
+    div[data-testid="stRadio"] div[role="radiogroup"] label {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        min-height: 70px !important;
+        margin: 0 !important;
+        padding: 16px 24px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        box-sizing: border-box !important;
+        background: #fff7ed !important;
+        border: 2px solid #fed7aa !important;
         border-radius: 18px !important;
+        color: #7c2d12 !important;
         font-size: 18px !important;
-        font-weight: 900 !important;
-        border: 2px solid #fb923c !important;
-        box-shadow: 0 4px 14px rgba(249, 115, 22, 0.18) !important;
+        font-weight: 850 !important;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.06) !important;
+    }
+
+    div.stRadio div[role="radiogroup"] label:hover,
+    div[data-testid="stRadio"] div[role="radiogroup"] label:hover {
+        background: #ffedd5 !important;
+        border-color: #fb923c !important;
+    }
+
+    div.stRadio div[role="radiogroup"] label:has(input:checked),
+    div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {
+        background: linear-gradient(135deg, #fed7aa, #fdba74) !important;
+        border-color: #ea580c !important;
+        box-shadow: 0 5px 16px rgba(249, 115, 22, 0.35) !important;
+    }
+
+    .mode-card,
+    .payment-card,
+    .member-card,
+    .summary-card,
+    .total-box,
+    .point-box {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
     }
 
     </style>
@@ -893,13 +950,6 @@ if "found_tray" not in st.session_state:
 if "result_id" not in st.session_state:
     st.session_state.result_id = 0
 
-if "tray_pay_mode" not in st.session_state:
-    st.session_state.tray_pay_mode = "1 khay duy nhất"
-
-if "payment_method" not in st.session_state:
-    st.session_state.payment_method = "Tiền mặt"
-
-
 if "payment_step" not in st.session_state:
     st.session_state.payment_step = "scan"
 
@@ -1058,35 +1108,13 @@ elif st.session_state.page == "payment":
         unsafe_allow_html=True
     )
 
-    st.markdown('<div class="full-option-card">', unsafe_allow_html=True)
-    st.markdown(
-        f'<div class="option-status">Đang chọn: {st.session_state.tray_pay_mode}</div>',
-        unsafe_allow_html=True
+    tray_pay_mode = st.radio(
+        "Chọn kiểu thanh toán",
+        ["1 khay duy nhất", "Nhiều khay cùng lúc"],
+        horizontal=True,
+        key="tray_pay_mode",
+        label_visibility="collapsed"
     )
-
-    col_mode_1, col_mode_2 = st.columns(2)
-
-    with col_mode_1:
-        if st.button(
-            "🔴 1 khay duy nhất" if st.session_state.tray_pay_mode == "1 khay duy nhất" else "⚪ 1 khay duy nhất",
-            use_container_width=True,
-            key="btn_one_tray_mode"
-        ):
-            st.session_state.tray_pay_mode = "1 khay duy nhất"
-            st.rerun()
-
-    with col_mode_2:
-        if st.button(
-            "🔴 Nhiều khay cùng lúc" if st.session_state.tray_pay_mode == "Nhiều khay cùng lúc" else "⚪ Nhiều khay cùng lúc",
-            use_container_width=True,
-            key="btn_multi_tray_mode"
-        ):
-            st.session_state.tray_pay_mode = "Nhiều khay cùng lúc"
-            st.rerun()
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    tray_pay_mode = st.session_state.tray_pay_mode
 
     if tray_pay_mode == "Nhiều khay cùng lúc" and len(st.session_state.multi_order_rows) > 0 and st.session_state.payment_step == "scan":
         st.markdown("### 🧾 Hóa đơn nhiều khay đã lưu")
@@ -1274,35 +1302,12 @@ elif st.session_state.page == "payment":
             unsafe_allow_html=True
         )
 
-        st.markdown('<div class="full-option-card">', unsafe_allow_html=True)
-        st.markdown(
-            f'<div class="option-status">Phương thức đang chọn: {st.session_state.payment_method}</div>',
-            unsafe_allow_html=True
+        payment_method = st.radio(
+            "Chọn phương thức thanh toán:",
+            ["Tiền mặt", "Chuyển khoản"],
+            horizontal=True,
+            label_visibility="collapsed"
         )
-
-        col_cash, col_bank = st.columns(2)
-
-        with col_cash:
-            if st.button(
-                "🔴 Tiền mặt" if st.session_state.payment_method == "Tiền mặt" else "⚪ Tiền mặt",
-                use_container_width=True,
-                key="btn_cash_payment"
-            ):
-                st.session_state.payment_method = "Tiền mặt"
-                st.rerun()
-
-        with col_bank:
-            if st.button(
-                "🔴 Chuyển khoản" if st.session_state.payment_method == "Chuyển khoản" else "⚪ Chuyển khoản",
-                use_container_width=True,
-                key="btn_bank_payment"
-            ):
-                st.session_state.payment_method = "Chuyển khoản"
-                st.rerun()
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        payment_method = st.session_state.payment_method
 
         if payment_method == "Tiền mặt":
             st.success(f"Khách thanh toán bằng tiền mặt: {format_money(payable_total)}. Sau khi thu tiền, bấm Hoàn tất thanh toán.")
