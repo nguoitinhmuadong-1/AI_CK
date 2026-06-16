@@ -23,8 +23,8 @@ IMG_SIZE = 224
 
 CLASS_NAMES = [
     "ca_hu_kho",
-    "canh_chua",
-    "canh_rau",
+    "cquý khách_chua",
+    "cquý khách_rau",
     "com_trang",
     "dau_hu_sot_ca",
     "rau_xao",
@@ -36,8 +36,8 @@ CLASS_NAMES = [
 
 DISPLAY_NAMES = {
     "ca_hu_kho": "Cá hú kho",
-    "canh_chua": "Canh chua",
-    "canh_rau": "Canh rau",
+    "cquý khách_chua": "Cquý khách chua",
+    "cquý khách_rau": "Cquý khách rau",
     "com_trang": "Cơm trắng",
     "dau_hu_sot_ca": "Đậu hũ sốt cà",
     "rau_xao": "Rau xào",
@@ -49,8 +49,8 @@ DISPLAY_NAMES = {
 
 PRICE_TABLE = {
     "ca_hu_kho": 30000,
-    "canh_chua": 10000,
-    "canh_rau": 7000,
+    "cquý khách_chua": 10000,
+    "cquý khách_rau": 7000,
     "com_trang": 10000,
     "dau_hu_sot_ca": 25000,
     "rau_xao": 10000,
@@ -548,6 +548,63 @@ st.markdown(
         box-sizing: border-box !important;
     }
 
+
+    /* ===== LÀM NỔI BẬT PHẦN THÔNG TIN THÀNH VIÊN ===== */
+    .member-input-card {
+        background: linear-gradient(135deg, #fff7ed, #fed7aa);
+        border: 3px solid #f97316;
+        border-radius: 24px;
+        padding: 22px 26px;
+        margin: 18px 0 16px 0;
+        color: #7c2d12;
+        box-shadow: 0 8px 28px rgba(249, 115, 22, 0.24);
+        box-sizing: border-box;
+    }
+
+    .member-input-card h3 {
+        color: #9a3412;
+        font-size: 27px;
+        font-weight: 950;
+        margin: 0 0 8px 0;
+    }
+
+    .member-input-card p {
+        color: #7c2d12;
+        font-size: 17px;
+        font-weight: 750;
+        margin: 0;
+    }
+
+    div[data-testid="stTextInput"] {
+        background: rgba(255, 255, 255, 0.90);
+        border: 2px solid #fdba74;
+        border-radius: 18px;
+        padding: 14px 16px 16px 16px;
+        box-shadow: 0 5px 16px rgba(249, 115, 22, 0.14);
+        margin-bottom: 12px;
+    }
+
+    div[data-testid="stTextInput"] label p {
+        color: #7c2d12 !important;
+        font-size: 17px !important;
+        font-weight: 900 !important;
+    }
+
+    div[data-testid="stTextInput"] input {
+        background: #ffffff !important;
+        border: 2px solid #fb923c !important;
+        border-radius: 14px !important;
+        color: #111827 !important;
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        min-height: 54px !important;
+    }
+
+    div[data-testid="stTextInput"] input::placeholder {
+        color: #9ca3af !important;
+        font-weight: 650 !important;
+    }
+
     </style>
     """,
     unsafe_allow_html=True
@@ -1034,7 +1091,7 @@ if st.session_state.page == "home":
         st.markdown(
             """
             <div class="feature-card">
-                <h3>📷 Thanh toán tại quầy</h3>
+                <h3>📷 Thquý khách toán tại quầy</h3>
                 <p>Chụp hoặc tải ảnh khay cơm, hệ thống tự cắt 5 ô, nhận diện món ăn và tính tiền.</p>
             </div>
             """,
@@ -1048,7 +1105,7 @@ if st.session_state.page == "home":
             """
             <div class="feature-card">
                 <h3>📋 Thực đơn</h3>
-                <p>Tra cứu danh sách món ăn, tên món và giá bán trong căn tin.</p>
+                <p>Tra cứu dquý khách sách món ăn, tên món và giá bán trong căn tin.</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -1076,7 +1133,7 @@ if st.session_state.page == "home":
 # PHÂN HỆ 1: THANH TOÁN
 # =========================
 elif st.session_state.page == "payment":
-    st.markdown('<div class="main-title">📷 Thanh toán tại quầy</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title">📷 Thquý khách toán tại quầy</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="sub-title">OpenCV cắt 5 ô khay cơm, AI nhận diện từng món và tính tiền</div>',
         unsafe_allow_html=True
@@ -1101,15 +1158,15 @@ elif st.session_state.page == "payment":
     st.markdown(
         """
         <div class="mode-card">
-            <div class="mode-title">💳 Chọn kiểu thanh toán</div>
-            <div class="mode-desc">Anh chọn thanh toán cho 1 khay hiện tại hoặc gom nhiều khay rồi thanh toán một lần.</div>
+            <div class="mode-title">💳 Chọn kiểu thquý khách toán</div>
+            <div class="mode-desc">Quý khách chọn thquý khách toán cho 1 khay hiện tại hoặc gom nhiều khay rồi thquý khách toán một lần.</div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
     tray_pay_mode = st.radio(
-        "Chọn kiểu thanh toán",
+        "Chọn kiểu thquý khách toán",
         ["1 khay duy nhất", "Nhiều khay cùng lúc"],
         horizontal=True,
         key="tray_pay_mode",
@@ -1122,7 +1179,7 @@ elif st.session_state.page == "payment":
             f"""
             <div class="summary-card">
                 <h3>Đã lưu {st.session_state.tray_count} khay</h3>
-                <p>Anh có thể chụp thêm khay khác hoặc thanh toán tất cả các khay đã lưu.</p>
+                <p>Quý khách có thể chụp thêm khay khác hoặc thquý khách toán tất cả các khay đã lưu.</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -1146,7 +1203,7 @@ elif st.session_state.page == "payment":
         col_multi_pay, col_multi_clear = st.columns(2)
 
         with col_multi_pay:
-            if st.button("💳 Thanh toán tất cả khay đã lưu", use_container_width=True):
+            if st.button("💳 Thquý khách toán tất cả khay đã lưu", use_container_width=True):
                 st.session_state.checkout_rows = st.session_state.multi_order_rows
                 st.session_state.checkout_total = st.session_state.multi_total
                 st.session_state.payment_step = "checkout"
@@ -1164,13 +1221,13 @@ elif st.session_state.page == "payment":
     # BƯỚC THANH TOÁN
     # =========================
     if st.session_state.payment_step == "checkout":
-        st.markdown("### 💳 Thanh toán")
+        st.markdown("### 💳 Thquý khách toán")
 
         order_rows = st.session_state.checkout_rows
         total = st.session_state.checkout_total
 
         if len(order_rows) == 0:
-            st.warning("Chưa có hóa đơn để thanh toán.")
+            st.warning("Chưa có hóa đơn để thquý khách toán.")
             if st.button("⬅ Quay lại nhận diện"):
                 clear_result()
                 st.rerun()
@@ -1180,7 +1237,7 @@ elif st.session_state.page == "payment":
             """
             <div class="payment-card">
                 <h3>Chi tiết hóa đơn</h3>
-                <p>Kiểm tra danh sách món và chọn hình thức thanh toán.</p>
+                <p>Kiểm tra dquý khách sách món và chọn hình thức thquý khách toán.</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -1204,11 +1261,21 @@ elif st.session_state.page == "payment":
             f"""
             <div class="member-card">
                 <h3>🎁 Tích điểm & đổi điểm thành viên</h3>
-                <p>Nhập số điện thoại hoặc mã thành viên để cộng điểm và dùng điểm giảm tiền.</p>
+                <p>Quý khách nhập số điện thoại hoặc mã thành viên để cộng điểm và dùng điểm giảm tiền.</p>
                 <p>
                     <b>Tích điểm:</b> {format_money(POINT_MONEY_RATE)} = 1 điểm<br>
                     <b>Đổi điểm:</b> 1 điểm = {format_money(POINT_REDEEM_VALUE)} giảm trực tiếp vào hóa đơn
                 </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown(
+            """
+            <div class="member-input-card">
+                <h3>👤 Thông tin thành viên</h3>
+                <p>Quý khách nhập số điện thoại hoặc mã thành viên để tích điểm và dùng điểm giảm trực tiếp trên hóa đơn.</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -1272,14 +1339,14 @@ elif st.session_state.page == "payment":
                     Dùng điểm: -{int(used_points)} ⭐ &nbsp; | &nbsp;
                     Giảm: {format_money(discount_money)}<br>
                     Điểm cộng thêm: +{earned_preview} ⭐ &nbsp; | &nbsp;
-                    Sau thanh toán: {after_points} ⭐
+                    Sau thquý khách toán: {after_points} ⭐
                 </div>
                 """,
                 unsafe_allow_html=True
             )
         else:
             earned_preview = 0
-            st.info("Không nhập mã thành viên thì vẫn thanh toán bình thường, nhưng đơn này sẽ không được cộng điểm hoặc đổi điểm.")
+            st.info("Không nhập mã thành viên thì vẫn thquý khách toán bình thường, nhưng đơn này sẽ không được cộng điểm hoặc đổi điểm.")
 
         if discount_money > 0:
             col_old_total, col_discount, col_payable = st.columns(3)
@@ -1295,28 +1362,28 @@ elif st.session_state.page == "payment":
         st.markdown(
             """
             <div class="payment-card">
-                <h3>💵 Chọn phương thức thanh toán</h3>
-                <p>Anh chọn tiền mặt hoặc chuyển khoản cho hóa đơn hiện tại.</p>
+                <h3>💵 Chọn phương thức thquý khách toán</h3>
+                <p>Quý khách chọn tiền mặt hoặc chuyển khoản cho hóa đơn hiện tại.</p>
             </div>
             """,
             unsafe_allow_html=True
         )
 
         payment_method = st.radio(
-            "Chọn phương thức thanh toán:",
+            "Chọn phương thức thquý khách toán:",
             ["Tiền mặt", "Chuyển khoản"],
             horizontal=True,
             label_visibility="collapsed"
         )
 
         if payment_method == "Tiền mặt":
-            st.success(f"Khách thanh toán bằng tiền mặt: {format_money(payable_total)}. Sau khi thu tiền, bấm Hoàn tất thanh toán.")
+            st.success(f"Khách thquý khách toán bằng tiền mặt: {format_money(payable_total)}. Sau khi thu tiền, bấm Hoàn tất thquý khách toán.")
         else:
             st.markdown(
                 """
                 <div class="qr-card">
                     <h3>QR chuyển khoản</h3>
-                    <p>Khách quét mã QR bên dưới để thanh toán.</p>
+                    <p>Khách quét mã QR bên dưới để thquý khách toán.</p>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -1325,10 +1392,10 @@ elif st.session_state.page == "payment":
             qr_img, qr_content = create_payment_qr(order_rows, payable_total)
 
             if qr_img is not None:
-                st.image(qr_img, caption="QR thanh toán", width=280)
+                st.image(qr_img, caption="QR thquý khách toán", width=280)
             else:
                 qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=" + quote(qr_content)
-                st.image(qr_url, caption="QR thanh toán", width=280)
+                st.image(qr_url, caption="QR thquý khách toán", width=280)
 
             with st.expander("Nội dung QR"):
                 st.code(qr_content)
@@ -1342,7 +1409,7 @@ elif st.session_state.page == "payment":
                 st.rerun()
 
         with col_finish:
-            if st.button("✅ Hoàn tất thanh toán", use_container_width=True):
+            if st.button("✅ Hoàn tất thquý khách toán", use_container_width=True):
                 points_info = update_member_points_after_payment(
                     st.session_state.member_id,
                     st.session_state.member_name,
@@ -1350,7 +1417,7 @@ elif st.session_state.page == "payment":
                     used_points=used_points
                 )
 
-                success_message = f"Thanh toán hoàn tất. Số tiền đã thanh toán: {format_money(payable_total)}."
+                success_message = f"Thquý khách toán hoàn tất. Số tiền đã thquý khách toán: {format_money(payable_total)}."
 
                 if points_info is not None:
                     extra_message = f" Đã cộng {points_info['earned_points']} điểm."
@@ -1378,7 +1445,7 @@ elif st.session_state.page == "payment":
         <div class="input-card">
             <h3>📸 Chụp hoặc tải ảnh khay cơm</h3>
             <p>
-            Anh có thể chọn ảnh có sẵn hoặc chụp trực tiếp. Khi chụp, đặt khay nằm giữa khung hình,
+            Quý khách có thể chọn ảnh có sẵn hoặc chụp trực tiếp. Khi chụp, đặt khay nằm giữa khung hình,
             chụp thẳng từ trên xuống để OpenCV cắt 5 ô chính xác hơn.
             </p>
         </div>
@@ -1457,7 +1524,7 @@ elif st.session_state.page == "payment":
         if st.session_state.found_tray is False and st.session_state.tray_box is not None:
             st.warning(
                 "OpenCV chưa tìm được khay rõ ràng nên app dùng vùng khay mặc định. "
-                "Nếu box bị lệch, anh nên chụp ảnh thẳng từ trên xuống và để khay nằm giữa ảnh."
+                "Nếu box bị lệch, quý khách nên chụp ảnh thẳng từ trên xuống và để khay nằm giữa ảnh."
             )
 
         st.markdown("### Hóa đơn món ăn")
@@ -1514,7 +1581,7 @@ elif st.session_state.page == "payment":
         )
 
         if tray_pay_mode == "1 khay duy nhất":
-            if st.button("💳 Thanh toán khay này", use_container_width=True):
+            if st.button("💳 Thquý khách toán khay này", use_container_width=True):
                 st.session_state.checkout_rows = bill_rows
                 st.session_state.checkout_total = total
                 st.session_state.payment_step = "checkout"
@@ -1531,11 +1598,11 @@ elif st.session_state.page == "payment":
                     st.session_state.multi_total += total
                     st.session_state.tray_count = current_tray_number
                     clear_current_scan()
-                    st.success(f"Đã lưu khay {current_tray_number}. Anh có thể chụp khay tiếp theo.")
+                    st.success(f"Đã lưu khay {current_tray_number}. Quý khách có thể chụp khay tiếp theo.")
                     st.rerun()
 
             with col_pay_all:
-                if st.button("💳 Thanh toán khay này + các khay đã lưu", use_container_width=True):
+                if st.button("💳 Thquý khách toán khay này + các khay đã lưu", use_container_width=True):
                     all_rows = st.session_state.multi_order_rows + current_rows_with_tray
                     all_total = st.session_state.multi_total + total
                     st.session_state.checkout_rows = all_rows
@@ -1550,7 +1617,7 @@ elif st.session_state.page == "payment":
 elif st.session_state.page == "menu":
     st.markdown('<div class="main-title">📋 Thực đơn căn tin</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="sub-title">Danh sách món ăn và giá bán</div>',
+        '<div class="sub-title">Dquý khách sách món ăn và giá bán</div>',
         unsafe_allow_html=True
     )
 
