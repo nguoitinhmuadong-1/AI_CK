@@ -78,7 +78,7 @@ POINT_MAX_DISCOUNT_RATE = 0.5  # Điểm chỉ được giảm tối đa 50% hó
 # SETUP STREAMLIT
 # =========================
 st.set_page_config(
-    page_title="AD VietFood Vision",
+    page_title="Bụng Đói Canteen",
     page_icon="🍱",
     layout="wide"
 )
@@ -837,7 +837,7 @@ def update_member_points_after_payment(member_id, member_name, payable_money, us
 
 
 def build_order_text(order_rows, total):
-    lines = ["AD VietFood Vision", f"Tong tien: {format_money(total)}", "Chi tiet mon:"]
+    lines = ["Bụng Đói Canteen", f"Tong tien: {format_money(total)}", "Chi tiet mon:"]
 
     for row in order_rows:
         lines.append(f"- {row['Tên món']}: {row['Giá']}")
@@ -1206,7 +1206,7 @@ def render_home_stickers():
 # =========================
 if st.session_state.page == "home":
     render_home_stickers()
-    st.markdown('<div class="main-title">🍱 AD VietFood Vision</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title">🍱 Bụng Đói Canteen</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="sub-title">Hệ thống nhận diện và tính tiền khay cơm căn tin tự động</div>',
         unsafe_allow_html=True
