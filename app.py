@@ -632,6 +632,60 @@ st.markdown(
         font-weight: 700 !important;
     }
 
+
+    /* ===== FIX CUỐI CÙNG CHO Ô NHẬP: STYLE ĐÚNG WRAPPER, BỎ KHUNG LỖI ===== */
+    div[data-testid="stTextInput"] {
+        margin-bottom: 14px !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+    }
+
+    div[data-testid="stTextInput"] > div {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+    }
+
+    div[data-testid="stTextInput"] [data-baseweb="input"] {
+        background: #ffffff !important;
+        border: 2px solid #f97316 !important;
+        border-radius: 16px !important;
+        box-shadow: 0 4px 14px rgba(249, 115, 22, 0.16) !important;
+        overflow: hidden !important;
+    }
+
+    div[data-testid="stTextInput"] input {
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        color: #111827 !important;
+        font-size: 18px !important;
+        font-weight: 750 !important;
+        min-height: 54px !important;
+        padding: 12px 16px !important;
+    }
+
+    div[data-testid="stTextInput"] [data-baseweb="input"]:focus-within {
+        border: 3px solid #ea580c !important;
+        box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.18) !important;
+    }
+
+    div[data-testid="stTextInput"] input:focus {
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+    }
+
+    div[data-testid="stTextInput"] input::placeholder {
+        color: #9ca3af !important;
+        font-weight: 700 !important;
+    }
+
+
     </style>
     """,
     unsafe_allow_html=True
