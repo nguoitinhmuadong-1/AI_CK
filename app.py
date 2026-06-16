@@ -400,6 +400,61 @@ st.markdown(
         fill: #166534 !important;
     }
 
+
+    /* ===== FIX RADIO FULL WIDTH - CHỌN KIỂU THANH TOÁN / PHƯƠNG THỨC THANH TOÁN ===== */
+    div.stRadio,
+    div[data-testid="stRadio"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        display: block !important;
+        box-sizing: border-box !important;
+        align-self: stretch !important;
+    }
+
+    div.stRadio > div,
+    div[data-testid="stRadio"] > div {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    div.stRadio div[role="radiogroup"],
+    div[data-testid="stRadio"] div[role="radiogroup"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(240px, 1fr)) !important;
+        gap: 18px !important;
+        box-sizing: border-box !important;
+    }
+
+    div.stRadio div[role="radiogroup"] label,
+    div[data-testid="stRadio"] div[role="radiogroup"] label {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        margin: 0 !important;
+        padding: 16px 20px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        box-sizing: border-box !important;
+    }
+
+    .mode-card,
+    .payment-card,
+    .member-card,
+    .summary-card,
+    .total-box,
+    .point-box {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
     </style>
     """,
     unsafe_allow_html=True
