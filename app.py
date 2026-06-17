@@ -27,6 +27,13 @@ IMG_SIZE = 224
 BASE_TRAY_W = 1920
 BASE_TRAY_H = 1080
 
+# Vùng khay chuẩn trong ảnh gốc 1920x1080 khi anh tự lấy tọa độ.
+# OpenCV sẽ tìm vùng khay trong ảnh mới, rồi map 5 ô theo vùng chuẩn này.
+BASE_OUTER_TRAY_X = 220
+BASE_OUTER_TRAY_Y = 50
+BASE_OUTER_TRAY_W = 1420
+BASE_OUTER_TRAY_H = 950
+
 # Loại 1: 3 ô trên + 2 ô dưới
 TRAY_TYPE_1_ROIS = {
     "top_left":     (373, 138, 703, 435),
@@ -1015,10 +1022,11 @@ def scale_fixed_rois(rois, current_w, current_h):
 
 def get_5_tray_boxes(image_rgb, tray_type="tray1"):
     """
-    Quy trình hybrid:
-    1. OpenCV tìm vùng khay chính trong ảnh
-    2. Dùng tọa độ chuẩn của từng loại khay
-    3. Scale tọa độ đó vào đúng vùng khay vừa tìm được
+    Quy trình hybrid đã căn lại:
+    1. OpenCV tìm vùng khay trong ảnh mới
+    2. Tọa độ anh lấy là tọa độ theo ảnh gốc 1920x1080
+    3. Trước khi map vào vùng OpenCV, trừ đi vùng khay chuẩn BASE_OUTER_TRAY_*
+       để tránh bị lệch sang phải/xuống dưới.
 
     - tray1: Loại 1, 3 ô trên + 2 ô dưới
     - tray2: Loại 2, 2 ô trên + 3 ô dưới
@@ -1033,14 +1041,25 @@ def get_5_tray_boxes(image_rgb, tray_type="tray1"):
     tray_box, found_tray = detect_tray_box(image_rgb)
     tx, ty, tw, th = tray_box
 
-    # Dùng vùng khay OpenCV vừa tìm được làm hệ quy chiếu để cắt 5 ô
     final_boxes = []
 
     for name, (x1, y1, x2, y2) in rois.items():
-        nx1 = int(tx + (x1 / BASE_TRAY_W) * tw)
-        ny1 = int(ty + (y1 / BASE_TRAY_H) * th)
-        nx2 = int(tx + (x2 / BASE_TRAY_W) * tw)
-        ny2 = int(ty + (y2 / BASE_TRAY_H) * th)
+        # Đổi tọa độ tuyệt đối trong ảnh chuẩn thành tọa độ tương đối trong vùng khay chuẩn
+        rx1 = (x1 - BASE_OUTER_TRAY_X) / BASE_OUTER_TRAY_W
+        ry1 = (y1 - BASE_OUTER_TRAY_Y) / BASE_OUTER_TRAY_H
+        rx2 = (x2 - BASE_OUTER_TRAY_X) / BASE_OUTER_TRAY_W
+        ry2 = (y2 - BASE_OUTER_TRAY_Y) / BASE_OUTER_TRAY_H
+
+        # Giới hạn để không vượt quá vùng khay nếu OpenCV bắt hơi rộng/hơi hẹp
+        rx1 = max(0.0, min(1.0, rx1))
+        ry1 = max(0.0, min(1.0, ry1))
+        rx2 = max(0.0, min(1.0, rx2))
+        ry2 = max(0.0, min(1.0, ry2))
+
+        nx1 = int(tx + rx1 * tw)
+        ny1 = int(ty + ry1 * th)
+        nx2 = int(tx + rx2 * tw)
+        ny2 = int(ty + ry2 * th)
 
         nx1 = max(0, min(w - 1, nx1))
         ny1 = max(0, min(h - 1, ny1))
@@ -1338,7 +1357,7 @@ elif st.session_state.page == "payment":
         """
         <div class="mode-card">
             <div class="mode-title">🍽️ Chọn loại khay</div>
-            <div class="mode-desc">Quý khách chọn đúng mẫu khay để OpenCV căn vùng khay trước, rồi hệ thống cắt 5 ô theo tọa độ chuẩn chính xác hơn.</div>
+            <div class="mode-desc">Quý khách chọn đúng mẫu khay để OpenCV căn vùng khay trước, rồi hệ thống map 5 ô theo vùng khay chuẩn để tránh lệch khi ảnh chụp thay đổi.</div>
         </div>
         """,
         unsafe_allow_html=True
