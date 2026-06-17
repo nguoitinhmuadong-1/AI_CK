@@ -1015,7 +1015,11 @@ def scale_fixed_rois(rois, current_w, current_h):
 
 def get_5_tray_boxes(image_rgb, tray_type="tray1"):
     """
-    Cắt khay theo 2 mẫu cố định:
+    Quy trình hybrid:
+    1. OpenCV tìm vùng khay chính trong ảnh
+    2. Dùng tọa độ chuẩn của từng loại khay
+    3. Scale tọa độ đó vào đúng vùng khay vừa tìm được
+
     - tray1: Loại 1, 3 ô trên + 2 ô dưới
     - tray2: Loại 2, 2 ô trên + 3 ô dưới
     """
@@ -1026,26 +1030,27 @@ def get_5_tray_boxes(image_rgb, tray_type="tray1"):
     else:
         rois = TRAY_TYPE_1_ROIS
 
-    scaled_items = scale_fixed_rois(rois, w, h)
+    tray_box, found_tray = detect_tray_box(image_rgb)
+    tx, ty, tw, th = tray_box
 
+    # Dùng vùng khay OpenCV vừa tìm được làm hệ quy chiếu để cắt 5 ô
     final_boxes = []
 
-    for item in scaled_items:
-        x, y, bw, bh = item["box"]
+    for name, (x1, y1, x2, y2) in rois.items():
+        nx1 = int(tx + (x1 / BASE_TRAY_W) * tw)
+        ny1 = int(ty + (y1 / BASE_TRAY_H) * th)
+        nx2 = int(tx + (x2 / BASE_TRAY_W) * tw)
+        ny2 = int(ty + (y2 / BASE_TRAY_H) * th)
 
-        x1 = max(0, x)
-        y1 = max(0, y)
-        x2 = min(w, x + bw)
-        y2 = min(h, y + bh)
+        nx1 = max(0, min(w - 1, nx1))
+        ny1 = max(0, min(h - 1, ny1))
+        nx2 = max(nx1 + 1, min(w, nx2))
+        ny2 = max(ny1 + 1, min(h, ny2))
 
         final_boxes.append({
-            "name": item["name"],
-            "box": [x1, y1, x2 - x1, y2 - y1]
+            "name": name,
+            "box": [nx1, ny1, nx2 - nx1, ny2 - ny1]
         })
-
-    # Không cần OpenCV dò khay nữa vì đã dùng tọa độ cố định
-    tray_box = None
-    found_tray = True
 
     return final_boxes, tray_box, found_tray
 
@@ -1333,7 +1338,7 @@ elif st.session_state.page == "payment":
         """
         <div class="mode-card">
             <div class="mode-title">🍽️ Chọn loại khay</div>
-            <div class="mode-desc">Quý khách chọn đúng mẫu khay để hệ thống cắt 5 ô món ăn chính xác hơn.</div>
+            <div class="mode-desc">Quý khách chọn đúng mẫu khay để OpenCV căn vùng khay trước, rồi hệ thống cắt 5 ô theo tọa độ chuẩn chính xác hơn.</div>
         </div>
         """,
         unsafe_allow_html=True
@@ -1687,6 +1692,8 @@ elif st.session_state.page == "payment":
             st.session_state.detections = detections
             st.session_state.tray_box = tray_box
             st.session_state.found_tray = found_tray
+            if not found_tray:
+                st.warning("OpenCV chưa bắt được khay thật rõ, hệ thống đang dùng vùng ước lượng gần đúng. Quý khách nên chụp khay rõ hơn, thẳng hơn.")
             st.session_state.result_id += 1
 
             st.rerun()
