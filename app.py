@@ -27,13 +27,6 @@ IMG_SIZE = 224
 BASE_TRAY_W = 1920
 BASE_TRAY_H = 1080
 
-# Vùng khay chuẩn trong ảnh gốc 1920x1080 khi anh tự lấy tọa độ.
-# OpenCV sẽ tìm vùng khay trong ảnh mới, rồi map 5 ô theo vùng chuẩn này.
-BASE_OUTER_TRAY_X = 220
-BASE_OUTER_TRAY_Y = 50
-BASE_OUTER_TRAY_W = 1420
-BASE_OUTER_TRAY_H = 950
-
 # Loại 1: 3 ô trên + 2 ô dưới
 TRAY_TYPE_1_ROIS = {
     "top_left":     (373, 138, 703, 435),
@@ -1020,17 +1013,11 @@ def scale_fixed_rois(rois, current_w, current_h):
     return scaled
 
 
-def get_5_tray_boxes(image_rgb, tray_type="tray1", align_mode="fixed"):
+def get_5_tray_boxes(image_rgb, tray_type="tray1"):
     """
-    Cắt 5 ô theo 2 chế độ:
-
-    1. align_mode="fixed"
-       Dùng trực tiếp tọa độ anh đã căn trên ảnh 1920x1080.
-       Phù hợp khi camera/khay đặt cố định giống lúc test Colab.
-
-    2. align_mode="opencv"
-       OpenCV tìm vùng khay trước rồi map tọa độ chuẩn vào vùng đó.
-       Phù hợp khi khay bị lệch vị trí trong ảnh, nhưng có thể sai nếu OpenCV bắt khay chưa chuẩn.
+    Cắt khay theo 2 mẫu cố định:
+    - tray1: Loại 1, 3 ô trên + 2 ô dưới
+    - tray2: Loại 2, 2 ô trên + 3 ô dưới
     """
     h, w = image_rgb.shape[:2]
 
@@ -1039,69 +1026,34 @@ def get_5_tray_boxes(image_rgb, tray_type="tray1", align_mode="fixed"):
     else:
         rois = TRAY_TYPE_1_ROIS
 
+    scaled_items = scale_fixed_rois(rois, w, h)
+
     final_boxes = []
+
+    for item in scaled_items:
+        x, y, bw, bh = item["box"]
+
+        x1 = max(0, x)
+        y1 = max(0, y)
+        x2 = min(w, x + bw)
+        y2 = min(h, y + bh)
+
+        final_boxes.append({
+            "name": item["name"],
+            "box": [x1, y1, x2 - x1, y2 - y1]
+        })
+
+    # Không cần OpenCV dò khay nữa vì đã dùng tọa độ cố định
     tray_box = None
     found_tray = True
-
-    if align_mode == "opencv":
-        tray_box, found_tray = detect_tray_box(image_rgb)
-        tx, ty, tw, th = tray_box
-
-        for name, (x1, y1, x2, y2) in rois.items():
-            rx1 = (x1 - BASE_OUTER_TRAY_X) / BASE_OUTER_TRAY_W
-            ry1 = (y1 - BASE_OUTER_TRAY_Y) / BASE_OUTER_TRAY_H
-            rx2 = (x2 - BASE_OUTER_TRAY_X) / BASE_OUTER_TRAY_W
-            ry2 = (y2 - BASE_OUTER_TRAY_Y) / BASE_OUTER_TRAY_H
-
-            rx1 = max(0.0, min(1.0, rx1))
-            ry1 = max(0.0, min(1.0, ry1))
-            rx2 = max(0.0, min(1.0, rx2))
-            ry2 = max(0.0, min(1.0, ry2))
-
-            nx1 = int(tx + rx1 * tw)
-            ny1 = int(ty + ry1 * th)
-            nx2 = int(tx + rx2 * tw)
-            ny2 = int(ty + ry2 * th)
-
-            nx1 = max(0, min(w - 1, nx1))
-            ny1 = max(0, min(h - 1, ny1))
-            nx2 = max(nx1 + 1, min(w, nx2))
-            ny2 = max(ny1 + 1, min(h, ny2))
-
-            final_boxes.append({
-                "name": name,
-                "box": [nx1, ny1, nx2 - nx1, ny2 - ny1]
-            })
-
-    else:
-        # Chế độ này giống kết quả anh test chuẩn trên Colab:
-        # scale tọa độ từ ảnh chuẩn 1920x1080 sang kích thước ảnh hiện tại.
-        scaled_items = scale_fixed_rois(rois, w, h)
-
-        for item in scaled_items:
-            x, y, bw, bh = item["box"]
-
-            x1 = max(0, x)
-            y1 = max(0, y)
-            x2 = min(w, x + bw)
-            y2 = min(h, y + bh)
-
-            final_boxes.append({
-                "name": item["name"],
-                "box": [x1, y1, x2 - x1, y2 - y1]
-            })
 
     return final_boxes, tray_box, found_tray
 
 
-def recognize_image(image_rgb, model, tray_type="tray1", align_mode="fixed"):
+def recognize_image(image_rgb, model, tray_type="tray1"):
     detections = []
 
-    boxes, tray_box, found_tray = get_5_tray_boxes(
-        image_rgb,
-        tray_type=tray_type,
-        align_mode=align_mode
-    )
+    boxes, tray_box, found_tray = get_5_tray_boxes(image_rgb, tray_type=tray_type)
 
     for item in boxes:
         box = item["box"]
@@ -1226,11 +1178,6 @@ if "payment_success_message" not in st.session_state:
 
 if "selected_tray_type" not in st.session_state:
     st.session_state.selected_tray_type = "tray1"
-
-
-if "crop_align_mode" not in st.session_state:
-    st.session_state.crop_align_mode = "fixed"
-
 
 
 
@@ -1386,7 +1333,7 @@ elif st.session_state.page == "payment":
         """
         <div class="mode-card">
             <div class="mode-title">🍽️ Chọn loại khay</div>
-            <div class="mode-desc">Quý khách chọn đúng mẫu khay để OpenCV căn vùng khay trước, rồi hệ thống map 5 ô theo vùng khay chuẩn để tránh lệch khi ảnh chụp thay đổi.</div>
+            <div class="mode-desc">Quý khách chọn đúng mẫu khay. Hệ thống sẽ cắt 5 ô theo tọa độ cố định đã căn chuẩn trên Colab.</div>
         </div>
         """,
         unsafe_allow_html=True
@@ -1406,32 +1353,6 @@ elif st.session_state.page == "payment":
         st.session_state.selected_tray_type = "tray1"
     else:
         st.session_state.selected_tray_type = "tray2"
-
-    st.markdown(
-        """
-        <div class="mode-card">
-            <div class="mode-title">📐 Chế độ căn khay</div>
-            <div class="mode-desc">Nếu khay được đặt cố định giống lúc test Colab, chọn tọa độ cố định. Nếu khay bị lệch vị trí trong ảnh, thử OpenCV.</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    crop_mode_label = st.radio(
-        "Chế độ căn khay",
-        [
-            "Tọa độ cố định (chuẩn như Colab)",
-            "OpenCV tự căn khay"
-        ],
-        horizontal=True,
-        label_visibility="collapsed"
-    )
-
-    if crop_mode_label == "OpenCV tự căn khay":
-        st.session_state.crop_align_mode = "opencv"
-    else:
-        st.session_state.crop_align_mode = "fixed"
-
 
     if tray_pay_mode == "Nhiều khay cùng lúc" and len(st.session_state.multi_order_rows) > 0 and st.session_state.payment_step == "scan":
         st.markdown("### 🧾 Hóa đơn nhiều khay đã lưu")
@@ -1760,15 +1681,12 @@ elif st.session_state.page == "payment":
             detections, tray_box, found_tray = recognize_image(
                 image_rgb,
                 food_model,
-                tray_type=st.session_state.selected_tray_type,
-                align_mode=st.session_state.crop_align_mode
+                tray_type=st.session_state.selected_tray_type
             )
 
             st.session_state.detections = detections
             st.session_state.tray_box = tray_box
             st.session_state.found_tray = found_tray
-            if st.session_state.crop_align_mode == "opencv" and not found_tray:
-                st.warning("OpenCV chưa bắt được khay thật rõ, hệ thống đang dùng vùng ước lượng gần đúng. Quý khách nên chụp khay rõ hơn, thẳng hơn.")
             st.session_state.result_id += 1
 
             st.rerun()
